@@ -637,6 +637,16 @@ export default function App() {
     );
     clearMarks();
   };
+  /** D on an item that only files its asks (see `planStatus`): the "filedAt" time, with an undo that restores the earlier one. */
+  const fileStep = (c: Classified) => {
+    const id = c.item.id;
+    const previous = inbox.settings.filedAt[id];
+    const at = new Date().toISOString();
+    return {
+      run: () => void inbox.updateSettings((s) => ({ ...s, filedAt: { ...s.filedAt, [id]: at } })),
+      undo: () => void inbox.updateSettings((s) => ({ ...s, filedAt: previous ? { ...s.filedAt, [id]: previous } : without(s.filedAt, id) })),
+    };
+  };
   const statusStep = (c: Classified, status: Status, until?: string) => {
     const previous = inbox.statuses.get(c.item.id);
     return { run: () => void inbox.setStatus(c.item.id, status, until ? { until } : {}), undo: () => void inbox.restoreStatus(c.item.id, previous) };
@@ -651,6 +661,8 @@ export default function App() {
       case "resume":
       case "clear":
         return { run: () => void inbox.clearStatus(c.item.id), undo };
+      case "file":
+        return fileStep(c);
       case "blocked":
         return null;
       case "tick-update":
@@ -664,12 +676,18 @@ export default function App() {
   };
   /** D or O on the marked items, each as it would be for the item alone (my part done, ticking off an update, back in the work). */
   const bulkStatus = (status: Status) => {
-    const filed = open.filter((c) => planStep(c, status) !== null);
-    const steps = [...filed.map((c) => planStep(c, status)!), ...(status === "done" ? unplanStep(filed) : [])];
+    const files = (c: Classified) => planStatus(c, status, me).do === "file";
+    const changed = marked.filter((c) => (!c.item.closed || files(c)) && planStep(c, status) !== null);
+    const [filed, set] = [changed.filter(files), changed.filter((c) => !files(c))];
+    const steps = [...changed.map((c) => planStep(c, status)!), ...(status === "done" ? unplanStep(set) : [])];
     const blocked = open.filter((c) => planStatus(c, status, me).do === "blocked").length;
     if (steps.length === 0) return blocked > 0 ? actions.notify(t("marks.blocked", { count: blocked })) : undefined;
-    const text = plural("marks.toastOne", "marks.toast", filed.length, { status: t(`status.${status}`) });
-    bulk(blocked > 0 ? `${text} · ${t("marks.blocked", { count: blocked })}` : text, steps);
+    const parts = [
+      ...(set.length > 0 ? [plural("marks.toastOne", "marks.toast", set.length, { status: t(`status.${status}`) })] : []),
+      ...(filed.length > 0 ? [plural("marks.filedOne", "marks.filed", filed.length)] : []),
+      ...(blocked > 0 ? [t("marks.blocked", { count: blocked })] : []),
+    ];
+    bulk(parts.join(" · "), steps);
   };
   /** The text for one item or for several: `one` takes no count. */
   const plural = (one: MessageKey, many: MessageKey, count: number, params: Record<string, string | number> = {}) => t(count === 1 ? one : many, { count, ...params });
@@ -761,6 +779,12 @@ export default function App() {
   const applyStatus = (c: Classified, status: Status) => {
     const { id, number } = c.item;
     const previous = inbox.statuses.get(id);
+    const plan = planStatus(c, status, me);
+    if (plan.do === "file") {
+      const step = fileStep(c);
+      step.run();
+      return actions.announce(t("toast.filed", { number }), step.undo, step.run);
+    }
     // D ends a plan too, in the same toast and undo.
     const ends = status === "done" ? unplanStep([c]) : [];
     const change = (text: string, run: () => void) => {
@@ -772,7 +796,6 @@ export default function App() {
         again,
       );
     };
-    const plan = planStatus(c, status, me);
     const hand = () => void inbox.setStatus(id, "done", { handoff: snapshotOf(c.item) });
     switch (plan.do) {
       case "resume":

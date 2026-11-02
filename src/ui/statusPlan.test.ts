@@ -54,6 +54,21 @@ describe("planStatus", () => {
     expect(planStatus(entry({ author: ME, assignees: [ME] }), "snoozed", ME)).toEqual({ do: "set", status: "snoozed" });
   });
 
+  it("files an item of the tables that sits in the inbox, keeping the viewer's part", () => {
+    expect(planStatus(entry({}, ["feedback"]), "done", ME)).toEqual({ do: "file" });
+    expect(planStatus(entry({}, ["mention", "reply"]), "done", ME)).toEqual({ do: "file" });
+    expect(planStatus(entry({ author: ME, kind: "pr", assignees: [], reasons: ["involved"] }, ["feedback"]), "done", ME)).toEqual({ do: "file" });
+  });
+
+  it("keeps D's own meaning for a mention or review request alone", () => {
+    expect(planStatus(entry({}, ["review"]), "done", ME)).toEqual({ do: "hand-off" });
+    expect(planStatus(entry({ author: ME, kind: "pr", assignees: [], reasons: ["involved"] }, ["mention"]), "done", ME)).toEqual({ do: "blocked" });
+  });
+
+  it("files an own item someone else closed", () => {
+    expect(planStatus(entry({ author: ME, assignees: [], closed: { state: "closed", at: "2026-10-02T00:00:00Z" } }, ["closed"]), "done", ME)).toEqual({ do: "file" });
+  });
+
   it("sets other statuses as chosen", () => {
     expect(planStatus(entry({}), "snoozed", ME)).toEqual({ do: "set", status: "snoozed" });
   });
