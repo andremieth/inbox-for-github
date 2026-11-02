@@ -21,7 +21,7 @@ import { Highlight } from "./Highlight";
 import { SearchField } from "./SearchField";
 import { followUpWhen, rowWhen, type RowWhen } from "../followUp";
 import { carriedText, datedText, dayLong, type Dated } from "../plan";
-import type { Layout } from "../usePlannedLayout";
+import type { Layout } from "../useViewLayout";
 import { numberSpans, titleSpans } from "../textFilter";
 import { KindIcon, PlanIcon, WhenIcon } from "./ItemMarks";
 import { LayoutSwitch } from "./LayoutSwitch";
@@ -31,6 +31,7 @@ const HINTS: Partial<Record<TableGroup, MessageKey>> = {
   review: "table.reviewHint",
   progress: "table.progressHint",
   todo: "table.todoHint",
+  blocked: "table.blockedHint",
   later: "table.laterHint",
   finished: "table.finishedHint",
   pr: "table.prHint",
@@ -45,8 +46,8 @@ interface Props {
   /** How many items match the search, for the bar. */
   searchCount: number;
   searchRef: RefObject<HTMLInputElement | null>;
-  /** "assigned": Assigned to me, with stars, the new mark and the grouping switch. "authored": Created by me, with the opening time. "planned": Planned by day. */
-  mode: "assigned" | "authored" | "planned";
+  /** "assigned": Assigned to me, with stars, the new mark and the grouping switch. "authored": Created by me, with the opening time. "planned": Planned by day. "snoozed": Follow-up by the day it comes back. */
+  mode: "assigned" | "authored" | "planned" | "snoozed";
   /** Planned: the layout menu in the header, list or table. */
   layout?: Layout;
   onLayout?: (layout: Layout) => void;
@@ -172,8 +173,6 @@ export function AssignedTable(props: Props) {
     if (group.startsWith("day:")) return t(`time.group.${group.slice(4)}` as MessageKey);
     return t(`table.${group as PlateGroup}`);
   };
-  // Created by me has no board-blocked items in Later, only snoozed ones.
-  const hintOf = (group: TableGroup) => (group === "later" && !assigned ? "table.laterAuthoredHint" : HINTS[group]);
   const scroll = useRef<HTMLDivElement>(null);
   const section = useRef<HTMLElement>(null);
   useGutter(() => scroll.current, () => section.current);
@@ -217,7 +216,7 @@ export function AssignedTable(props: Props) {
         <button className="chip-btn" disabled={groups.length === 0} onClick={() => props.onToggleAll(anyOpen)} title={t(anyOpen ? "table.collapseAll" : "table.expandAll")} aria-label={t(anyOpen ? "table.collapseAll" : "table.expandAll")}>
           {anyOpen ? <ChevronsDownUp size={15} /> : <ChevronsUpDown size={15} />}
         </button>
-        <SortButton order={props.sort} onFlip={props.onSort} by={props.mode === "planned" ? "return" : undefined} />
+        <SortButton order={props.sort} onFlip={props.onSort} by={props.mode === "planned" || props.mode === "snoozed" ? "return" : undefined} />
         <BucketInfo key={props.mode} bucket={props.mode} reopenOn={props.reopenOn} onShowRules={props.onShowRules} />
       </header>
             <div className="dock-body" ref={body}>
@@ -263,14 +262,14 @@ export function AssignedTable(props: Props) {
                 <ChevronRight size={14} className="bar-chevron" />
                 {label(group, entries)}
                 <span>{entries.length}</span>
-                {hintOf(group) && <small className="bar-hint">{t(hintOf(group)!)}</small>}
+                {HINTS[group] && <small className="bar-hint">{t(HINTS[group])}</small>}
               </button>
               {!collapsed.has(group) && entries.map(row)}
             </div>
           ))}
           {groups.length === 0 && (
             <div className="assigned-empty">
-              <p>{t(props.mode === "assigned" ? "list.empty.assigned" : props.mode === "planned" ? "list.empty.planned" : "list.empty.authored")}</p>
+              <p>{t(`list.empty.${props.mode}`)}</p>
               <Elsewhere counts={props.counts} current={props.mode} onJump={props.onJump} />
             </div>
           )}

@@ -22,6 +22,7 @@ import { findEvents, moveEvent, putEvent, removeEvent, writing, type CalendarEve
 import { onDay } from "./ui/calendarSlot";
 import { SnoozeDatePicker } from "./ui/parts/SnoozeDatePicker";
 import { followUpOn, untilText } from "./ui/snooze";
+import { isWaiting } from "./ui/followUp";
 import { canSwitchDemo, isDemo, rememberDemo } from "./demo/flag";
 import { planStatus } from "./ui/statusPlan";
 import { StatusIcon } from "./ui/parts/StatusIcon";
@@ -51,8 +52,8 @@ import { choiceKey, choiceText, closedPlans, datedAt, datedOf, datedText, dayCho
 import { attributeOptions, combineAttributes, shownKeys, tableKeys } from "./ui/attributes";
 import { useCollapsed } from "./ui/useCollapsed";
 import { useSortOrders, type SortOrder } from "./ui/useSortOrders";
-import { usePlannedLayout } from "./ui/usePlannedLayout";
-import { groupBySnoozeEnd, groupByTime, WAITING_GROUP, type SnoozeGroup, type TimeGroup } from "./ui/timeGroups";
+import { useViewLayout } from "./ui/useViewLayout";
+import { groupBySnoozeEnd, groupByTime, type SnoozeGroup, type TimeGroup } from "./ui/timeGroups";
 import { matchesSprint, sprintChoices, type SprintFilter } from "./ui/sprints";
 import { filterGroups, matchesText } from "./ui/textFilter";
 import { AssignedTable } from "./ui/parts/AssignedTable";
@@ -92,8 +93,12 @@ export default function App() {
   const [chosen, setChosen] = useState<View>("inbox");
   const views = VIEWS;
   const bucket = chosen;
-  const [layout, setLayout] = usePlannedLayout();
-  const table = bucket === "assigned" || bucket === "authored" || (bucket === "planned" && layout === "table");
+  const [plannedLayout, setPlannedLayout] = useViewLayout("planned");
+  const [followUpLayout, setFollowUpLayout] = useViewLayout("snoozed");
+  const byReturn = bucket === "planned" || bucket === "snoozed";
+  const layout = bucket === "snoozed" ? followUpLayout : plannedLayout;
+  const setLayout = bucket === "snoozed" ? setFollowUpLayout : setPlannedLayout;
+  const table = bucket === "assigned" || bucket === "authored" || (byReturn && layout === "table");
   const [repoFilter, setRepoFilter] = useState<string[]>([]);
   const [kind, setKind] = useState<KindFilter>("all");
   const [ask, setAsk] = useState<AskFilter>("all");
@@ -128,7 +133,7 @@ export default function App() {
     setMarks(new Set());
   };
   // Each table keeps its own sprint filter while the viewer switches views.
-  const [sprints, setSprints] = useState<Record<"assigned" | "authored" | "planned", SprintFilter>>({ assigned: "all", authored: "all", planned: "all" });
+  const [sprints, setSprints] = useState<Record<"assigned" | "authored" | "planned" | "snoozed", SprintFilter>>({ assigned: "all", authored: "all", planned: "all", snoozed: "all" });
   // The free-text search over title and number: null while the search bar is closed, else the typed text.
   const [search, setSearch] = useState<string | null>(null);
   const query = search ?? "";
@@ -143,7 +148,7 @@ export default function App() {
   );
   const plateSprints = useMemo(() => sprintChoices(plateAll.flatMap((g) => g.entries.map((c) => c.item)), hidden), [plateAll, hidden]);
   const plateNewest = useMemo(() => filterGroups(bySprint(plateAll, sprints.assigned, plateSprints), query), [plateAll, sprints.assigned, plateSprints, bySprint, query]);
-  const bars = useCollapsed("assigned-collapsed", ["later", "finished", `inbox:${WAITING_GROUP}`], [`inbox:${WAITING_GROUP}`]);
+  const bars = useCollapsed("assigned-collapsed", ["blocked", "later", "finished"], ["blocked"]);
   const sort = useSortOrders();
   const authoredAll = useMemo(() => groupAuthored(scoped, inbox.me ?? "", sort.of("authored")), [scoped, inbox.me, sort]);
   const authoredSprints = useMemo(() => sprintChoices(authoredAll.flatMap((g) => g.entries.map((c) => c.item)), hidden), [authoredAll, hidden]);
@@ -189,7 +194,7 @@ export default function App() {
       () => cs.forEach((c) => void (read ? inbox.markSeen(c.item.id) : inbox.markUnread(c.item.id))),
     );
   };
-  /** The unread assignments that still ask for work: the bars Planned, Later and Done are parked. */
+  /** The unread assignments that still ask for work: the bars Blocked, Follow-up and Finished are parked. */
   const unreadPlateIds = useMemo(
     () =>
       new Set(
@@ -204,6 +209,7 @@ export default function App() {
     if (view === "assigned") return groupPlate(inbox.classified, inbox.settings.statusMap, [], me).filter((g) => isActiveBar(g.group)).flatMap((g) => g.entries);
     if (view === "authored") return groupAuthored(inbox.classified, me).filter((g) => g.group !== "later").flatMap((g) => g.entries);
     if (view === "planned") return inbox.classified.filter((c) => dated(c) !== null);
+    if (view === "snoozed") return inbox.classified.filter(isWaiting);
     return inbox.classified.filter((c) => c.bucket === view);
   };
   const unreadCounts = useMemo(() => ({ inbox: unreadInboxIds.size, assigned: unreadPlateIds.size }), [unreadInboxIds, unreadPlateIds]);
@@ -233,32 +239,41 @@ export default function App() {
     (): { group: TableGroup; entries: Classified[] }[] => bySprint(plannedGroups.map((g) => ({ group: `day:${g.group}` as TableGroup, entries: g.entries })), sprints.planned, plannedSprints),
     [plannedGroups, bySprint, sprints.planned, plannedSprints],
   );
+  // Follow-up lists what waits, by the day it comes back, soonest first, those without a date last.
+  const followUpAll = useMemo(() => scoped.filter(isWaiting), [scoped]);
+  const followUpGroups = useMemo(
+    () => (bucket === "snoozed" ? groupBySnoozeEnd(followUpAll.filter((c) => matchesText(c.item, query)), (c) => c.until, (c) => c.statusAt ?? "", sort.of("snoozed") === "oldest") : []),
+    [bucket, followUpAll, query, sort],
+  );
+  const unreadFollowUpIds = useMemo(
+    () => new Set(followUpAll.filter((c) => inbox.unreadMarks.has(c.item.id) || (c.bucket === "inbox" ? unreadInInbox(c, inbox.seen, me) : unreadAssignment(c, inbox.seen, me))).map((c) => c.item.id)),
+    [followUpAll, inbox.seen, inbox.unreadMarks, me],
+  );
+  const followUpSprints = useMemo(() => sprintChoices(followUpAll.map((c) => c.item), hidden), [followUpAll, hidden]);
+  const followUpTable = useMemo(
+    (): { group: TableGroup; entries: Classified[] }[] => bySprint(followUpGroups.map((g) => ({ group: `day:${g.group}` as TableGroup, entries: g.entries })), sprints.snoozed, followUpSprints),
+    [followUpGroups, bySprint, sprints.snoozed, followUpSprints],
+  );
+  const byReturnGroups = bucket === "snoozed" ? followUpGroups : plannedGroups;
   const listed = useMemo(
     () =>
       table
         ? []
-        : bucket === "planned"
-          ? plannedGroups.flatMap((g) => g.entries)
+        : byReturn
+          ? byReturnGroups.flatMap((g) => g.entries)
           : oriented(sortByRecency((asking ? askBase.filter((c) => matchesAsk(c, ask, me)) : scoped.filter((c) => c.bucket === bucket)).filter((c) => matchesText(c.item, query)), rowTime), sort.of(bucket)),
-    [scoped, askBase, asking, ask, query, me, bucket, table, sort, rowTime, plannedGroups],
-  );
-  // The follow-ups that left the inbox wait in a bar at its bottom, soonest first, those without a date last.
-  const waiting = useMemo(
-    () => (bucket === "inbox" ? groupBySnoozeEnd(scoped.filter((c) => c.bucket === "snoozed" && matchesAsk(c, ask, me) && matchesText(c.item, query)), (c) => c.until, (c) => c.statusAt ?? "").flatMap((g) => g.entries) : []),
-    [bucket, scoped, ask, me, query],
+    [scoped, askBase, asking, ask, query, me, bucket, byReturn, table, sort, rowTime, byReturnGroups],
   );
   const timeGroups = useMemo(() => {
     if (table) return undefined;
     const heading = (group: TimeGroup | SnoozeGroup) => t(`time.group.${group}`);
-    if (bucket === "planned") return plannedGroups.map((g) => ({ ...g, heading: heading(g.group) }));
-    const bar = waiting.length > 0 ? [{ group: WAITING_GROUP, heading: t("table.later"), entries: waiting }] : [];
-    if (inbox.settings.groupByTime) return [...groupByTime(listed, rowTime, sort.of(bucket) === "oldest").map((g) => ({ ...g, heading: heading(g.group) })), ...bar];
-    // Without time groups the rows stand under no bar ("") and only the waiting ones under theirs.
-    return bar.length > 0 ? [{ group: "", heading: "", entries: listed }, ...bar] : undefined;
-  }, [bucket, table, listed, plannedGroups, waiting, inbox.settings.groupByTime, sort, rowTime]);
+    if (byReturn) return byReturnGroups.map((g) => ({ ...g, heading: heading(g.group) }));
+    if (inbox.settings.groupByTime) return groupByTime(listed, rowTime, sort.of(bucket) === "oldest").map((g) => ({ ...g, heading: heading(g.group) }));
+    return undefined;
+  }, [bucket, byReturn, table, listed, byReturnGroups, inbox.settings.groupByTime, sort, rowTime]);
   // The bars of the current view: status or time bars of the table, or a list's time groups.
   // Lists remember their folded groups per view, so "Today" folded in Done stays open in the inbox.
-  const tableGroups = bucket === "assigned" ? plate : bucket === "planned" ? plannedTable : authored;
+  const tableGroups = bucket === "assigned" ? plate : bucket === "planned" ? plannedTable : bucket === "snoozed" ? followUpTable : authored;
   const viewGroups: { group: string; entries: Classified[] }[] | undefined = table ? tableGroups : timeGroups;
   const barKey = useCallback((group: string) => (bucket === "assigned" ? group : `${bucket}:${group}`), [bucket]);
   const folded = useCallback((group: string) => bars.collapsed.has(barKey(group)), [bars.collapsed, barKey]);
@@ -330,8 +345,8 @@ export default function App() {
 
   const counts = useMemo(
     () =>
-      ({ ...countBy(scoped, (c) => c.bucket), inbox: inboxAll.length, planned: plannedAll.length, assigned: plateCount(plateAll), authored: authoredCount(authoredAll) }) as Record<View, number>,
-    [scoped, inboxAll, plannedAll, plateAll, authoredAll],
+      ({ ...countBy(scoped, (c) => c.bucket), inbox: inboxAll.length, planned: plannedAll.length, snoozed: followUpAll.length, assigned: plateCount(plateAll), authored: authoredCount(authoredAll) }) as Record<View, number>,
+    [scoped, inboxAll, plannedAll, followUpAll, plateAll, authoredAll],
   );
   // The picked repos narrow the sidebar's counts like the list; the other filters do not.
   const viewCounts = useMemo(() => {
@@ -340,6 +355,7 @@ export default function App() {
       ...countBy(all, (c) => c.bucket),
       inbox: all.filter((c) => c.bucket === "inbox").length,
       planned: all.filter((c) => datedOf(c, focus, plans, today) !== null).length,
+      snoozed: all.filter(isWaiting).length,
       assigned: plateCount(groupPlate(all, inbox.settings.statusMap, [], me)),
       authored: authoredCount(groupAuthored(all, me)),
     } as Record<View, number>;
@@ -369,7 +385,7 @@ export default function App() {
     [inbox.settings.tableAttributes, inbox.settings.detailAttributes, attributes],
   );
   const detailKeys = useMemo(() => shownKeys(combined, "detail"), [combined]);
-  const tableView = bucket === "authored" ? "authored" : bucket === "planned" ? "planned" : "assigned";
+  const tableView = bucket === "authored" || bucket === "planned" || bucket === "snoozed" ? bucket : "assigned";
   const ownColumns = inbox.settings.tableColumns[tableView];
   const columnKeys = useMemo(() => tableKeys(combined, ownColumns), [combined, ownColumns]);
   // Assigned to me also switches the opening date after the title; Created by me times its rows by it.
@@ -398,7 +414,7 @@ export default function App() {
     setRepoFilter([]);
     setKind("all");
     setAsk("all");
-    setSprints({ assigned: "all", authored: "all", planned: "all" });
+    setSprints({ assigned: "all", authored: "all", planned: "all", snoozed: "all" });
     setSearch(null);
   };
   // With "hoverActs", keys act on the row under the mouse; the arrow keys and an open pop-up hand them back to the selection.
@@ -1110,7 +1126,7 @@ export default function App() {
   /** Shows an item in its view with every filter cleared, so it cannot be hidden by one. */
   const jumpTo = (c: Classified) => {
     setRepoFilter([]);
-    setSprints({ assigned: "all", authored: "all", planned: "all" });
+    setSprints({ assigned: "all", authored: "all", planned: "all", snoozed: "all" });
     if (kind !== "all" && kind !== c.item.kind) setKind("all");
     setAsk("all");
     setBucket(viewOf(c, me) ?? "inbox");
@@ -1193,8 +1209,8 @@ export default function App() {
           onSelectBar={(group) => selection.select(`bar:${group}`)}
           onToggle={toggleBar}
           sprint={sprints[bucket]}
-          sprints={bucket === "assigned" ? plateSprints : bucket === "planned" ? plannedSprints : authoredSprints}
-          layout={bucket === "planned" ? layout : undefined}
+          sprints={bucket === "assigned" ? plateSprints : bucket === "planned" ? plannedSprints : bucket === "snoozed" ? followUpSprints : authoredSprints}
+          layout={byReturn ? layout : undefined}
           onLayout={setLayout}
           onSprint={(filter) => setSprints((current) => ({ ...current, [bucket]: filter }))}
           onToggleAll={(fold) => bars.setAll(tableGroups.map((g) => barKey(g.group)), fold)}
@@ -1232,11 +1248,11 @@ export default function App() {
       ) : (
         <InboxList
           timeOf={rowTime}
-          unread={bucket === "planned" ? unreadPlannedIds : unreadInboxIds}
+          unread={bucket === "planned" ? unreadPlannedIds : bucket === "snoozed" ? unreadFollowUpIds : unreadInboxIds}
           datedOf={dated}
           pinnedOn={inbox.settings.pinnedOn}
           today={today}
-          layout={bucket === "planned" ? layout : undefined}
+          layout={byReturn ? layout : undefined}
           onLayout={setLayout}
           onMenu={openMenu}
           counts={counts}
