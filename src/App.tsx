@@ -24,7 +24,7 @@ import { SnoozeDatePicker } from "./ui/parts/SnoozeDatePicker";
 import { followUpOn, untilText } from "./ui/snooze";
 import { isWaiting } from "./ui/followUp";
 import { canSwitchDemo, isDemo, rememberDemo } from "./demo/flag";
-import { planStatus } from "./ui/statusPlan";
+import { doneAccess, planStatus } from "./ui/statusPlan";
 import { StatusIcon } from "./ui/parts/StatusIcon";
 import { Bell, CalendarDays, Code, Ellipsis, ExternalLink, Hash, Link, Mail, MailOpen, RefreshCw, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { CommandPalette } from "./ui/parts/CommandPalette";
@@ -179,6 +179,8 @@ export default function App() {
     return () => window.removeEventListener("mousemove", move);
   }, [hoverActs]);
   const me = inbox.me ?? "";
+  /** How D is offered for an item: as usual, greyed out, or not at all (see `doneAccess`). */
+  const doneIn = (c: Classified) => doneAccess(c, me);
   const unreadInboxIds = useMemo(
     () => new Set(inbox.classified.filter((c) => c.bucket === "inbox" && (inbox.unreadMarks.has(c.item.id) || unreadInInbox(c, inbox.seen, me))).map((c) => c.item.id)),
     [inbox.classified, inbox.seen, inbox.unreadMarks, me],
@@ -810,7 +812,7 @@ export default function App() {
       case "clear":
         return change(t("toast.filed", { number }), () => void inbox.clearStatus(id));
       case "blocked":
-        return actions.notify(t("done.blocked", { number }));
+        return;
       case "set":
         if (ends.length === 0) return actions.apply(c, plan.status);
         if (c.item.closed) return actions.notify(t("closed.noStatus", { number }));
@@ -1014,12 +1016,15 @@ export default function App() {
   const menuEntries = (c: Classified): MenuEntry[] => {
     const { item } = c;
     const planned = dated(c) !== null;
-    const statuses: MenuEntry[] = statusesFor(c).map((s) => ({
+    const statuses: MenuEntry[] = statusesFor(c)
+      .filter((s) => !(s.id === "done" && doneIn(c) === "hidden"))
+      .map((s) => ({
       label: s.id === "done" && onPlate(c, me) && !c.updates ? t("action.handOff") : s.title,
       hint: statusHint(s.id === "done" && onPlate(c, me) && !c.updates ? "handOff" : s.id),
       keys: s.key,
       icon: <StatusIcon status={s.id} size={14} />,
       checked: c.status === s.id && !(planned && s.id === "open"),
+      disabled: s.id === "done" && doneIn(c) === "off",
       onSelect: () => applyStatus(c, s.id),
       // Snoozing offers its dates as a submenu, also to change the date; "Open" brings it back.
       ...(s.id === "snoozed" && { items: snoozeEntries(c) }),
@@ -1349,6 +1354,7 @@ export default function App() {
             descriptionMode={inbox.settings.descriptionMode}
             onReplied={replied}
             onStatus={(s) => current && applyStatus(current, s)}
+            done={current ? doneIn(current) : "on"}
             onCopy={(format: LinkFormat) => current && void copy(itemLink(current.item, format))}
             onReload={() => current && reloadCurrent(current)}
             onOrca={current && orcaOffered(current) ? () => runOrca(current) : undefined}
@@ -1384,6 +1390,7 @@ export default function App() {
                 descriptionMode={inbox.settings.descriptionMode}
                 onReplied={replied}
                 onStatus={(s) => current && applyStatus(current, s)}
+                done={current ? doneIn(current) : "on"}
             onCopy={(format: LinkFormat) => current && void copy(itemLink(current.item, format))}
             onReload={() => current && reloadCurrent(current)}
             onOrca={current && orcaOffered(current) ? () => runOrca(current) : undefined}
@@ -1436,6 +1443,7 @@ export default function App() {
           current={current}
           onClose={() => setDialog(null)}
           onStatus={(s) => current && applyStatus(current, s)}
+          doneOff={!!current && doneIn(current) !== "on"}
             onUntrack={() => current && untrack(current)}
             unread={!!current && isUnread(current)}
             onToggleRead={() => current && toggleRead([current])}
