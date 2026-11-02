@@ -167,7 +167,7 @@
   transition: background 100ms var(--ease), color 100ms var(--ease);
 }
 
-.nav-item span:not(.nav-count, .repo-dot, .repo-check) {
+.nav-item span:not(.nav-count, .repo-dot, .repo-check, .new-chip) {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -469,6 +469,42 @@
   color: var(--new);
 }
 
+/* A setting from a recent release; blue holds 4.5:1 on the panel and the hover fill in both themes. */
+.new-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--blue);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
+.nav-item .new-chip {
+  margin-left: 0;
+}
+
+.icon-btn.has-new {
+  position: relative;
+}
+
+.icon-btn.has-new::after {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--blue);
+  content: "";
+}
+
 .dialog.settings .dialog-actions {
   grid-column: 1 / -1;
   padding: 12px 16px;
@@ -520,7 +556,8 @@
   font-weight: 500;
 }
 
-.field small {
+.field small,
+.toggle-row small {
   color: var(--text-faint);
   font-size: 12px;
 }
@@ -545,17 +582,67 @@
   opacity: 0.5;
 }
 
-.delivery-rows {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
+/* Days and times of the schedule in one card, a labelled line each. */
+.delivery-card {
+  justify-self: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
 }
 
-.delivery-row {
-  display: flex;
+.delivery-line {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
+  padding: 10px 12px;
+}
+
+.delivery-line + .delivery-line {
+  border-top: 1px solid var(--border);
+}
+
+.delivery-label {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.delivery-times {
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
+}
+
+/* A time (or range) and its × as one piece, as tall as every other control. */
+.time-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-h);
+  padding-right: 3px;
+  border-radius: var(--radius-m);
+  background: var(--control-fill);
+}
+
+.dialog.settings .time-chip .segment-field {
+  height: 100%;
+  padding: 0 8px 0 10px;
+  border-color: transparent;
+  background: none;
+  font-weight: 500;
+}
+
+.time-chip .segment-field:focus-within {
+  border-color: var(--text-faint);
+}
+
+.time-chip-dash {
+  color: var(--text-muted);
+}
+
+.time-chip-x {
+  width: 22px;
+  height: 22px;
 }
 
 .reset-row {
@@ -583,8 +670,9 @@
   user-select: text;
 }
 
-.org-row {
-  padding-block: 8px;
+/* Controls of one kind stand equally tall in every section. */
+.dialog.settings :is(.btn, .repo-search, .org-add input, .segment-field) {
+  height: var(--control-h);
 }
 
 .org-avatar {
@@ -628,13 +716,13 @@
 .org-select-button {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: var(--radius-m);
   background: var(--bg);
 }
 
 .org-select-button:hover {
-  border-color: var(--text-faint);
+  border-color: var(--border-strong);
 }
 
 .org-select .org-avatar {
@@ -782,7 +870,7 @@
   min-width: 160px;
   height: 28px;
   padding: 0 10px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: var(--radius-m);
   background: var(--bg);
   -webkit-user-select: text;
@@ -824,7 +912,7 @@
   flex: 1;
   height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: var(--radius-m);
   background: var(--bg);
   -webkit-user-select: text;
@@ -855,12 +943,12 @@
   color: var(--text);
 }
 
-/* Days chosen one by one, so each stands apart instead of reading as one switch. */
-.segmented.weekdays {
-  gap: 4px;
+/* Several chosen at once, so each stands apart instead of reading as one switch; the gap matches the track's own padding. */
+.segmented.multi {
+  gap: 2px;
 }
 
-.segmented.weekdays button {
+.segmented.multi button {
   min-width: 48px;
   padding: 0 10px;
 }
@@ -879,7 +967,7 @@
 }
 
 .time-field .segment-field:focus-within {
-  border-color: var(--accent);
+  border-color: var(--text-faint);
 }
 
 /* Weight, not only the faint fill, tells the selected segment apart. */
@@ -894,6 +982,7 @@
   display: flex;
   gap: 16px;
   align-items: center;
+  min-height: var(--row-h);
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
@@ -944,6 +1033,7 @@
 }
 
 .toggle-row.compact {
+  min-height: 0;
   padding-block: 6px;
 }
 

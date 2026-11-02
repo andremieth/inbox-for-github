@@ -12,7 +12,7 @@ Notable tokens:
 | Token | Use |
 |---|---|
 | `--text`, `--text-muted`, `--text-faint` | text levels; lists and detail use `--text-content` (slightly dimmer, about 12:1 in both themes) |
-| `--border`, `--border-strong` | quiet and visible lines; chips use `--border-strong` |
+| `--border`, `--border-strong` | quiet and visible lines; cards, inputs and dropdowns use `--border` (`--border-strong` on hover), chips `--border-strong` |
 | `--hover`, `--selected` | row and button backgrounds |
 | `--focus-fill` | keyboard focus fill, 3:1 against the panel |
 | `--segment-fill` | the active part of a date or time field; softer by choice, below 3:1 |
@@ -34,7 +34,8 @@ One exception: the initial in an avatar orb is white at 2.4:1 or better, see
 
 **Keyboard focus** is a fill (`--focus-fill`) with the text inside switched to `--text`, shown
 only after keyboard use (`html[data-input="pointer"]` hides it after clicks, set in
-`src/main.tsx`). No outlines or rings. Text fields show focus by their border; `.btn.success`
+`src/main.tsx`). No outlines or rings. Text fields show focus by their border in `--text-faint`
+(5:1 against the panel in both themes, quieter than `--accent`); `.btn.success`
 darkens instead.
 
 ## Shapes
@@ -42,6 +43,11 @@ darkens instead.
 - Chips, pills and labels are fully rounded (`border-radius: 999px`).
 - A highlight inside a rounded container matches the container's inner radius
   (`calc(var(--radius-m) - 1px)` inside a 1px border).
+- Items of one kind are equally tall wherever they appear: in the settings every control is
+  `--control-h` (30 px) and every row with a switch at least `--row-h`, with or without a hint.
+  The organization dropdown is the one larger control (40 px), as it carries an avatar and a count.
+- A segmented control picks one option; one where several can be on (weekdays) is
+  `.segmented.multi`, whose options stand apart with a gap.
 - Controls in a list or table header are greyed out (`disabled`, `--text-faint`) when they have
   nothing to act on, never hidden, so the others keep their place. Counts in a switch show 0.
 - A scroll area keeps its left padding; a visible scrollbar takes the place of the right one
