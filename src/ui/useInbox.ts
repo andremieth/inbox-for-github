@@ -3,7 +3,7 @@ import { ghToken } from "../github/token";
 import { classify, type Classified } from "../classify";
 import { snoozeEnded } from "../reopen";
 import { lastBudget, missingScopes, pointsSpent, RateLimitError, tokenScopes, type Budget, type Scope } from "../github/client";
-import { canDelta, covers, decodeScope, DELTA_OVERLAP_MS, encodeScope, findTransfers, mergeDelta, mergeReloaded, transferCandidates, widensClosed, withdrawReviews, withinClosedWindow, type Coverage } from "../github/delta";
+import { addRequested, canDelta, covers, decodeScope, DELTA_OVERLAP_MS, encodeScope, findTransfers, mergeDelta, mergeReloaded, transferCandidates, unseenReviews, widensClosed, withdrawReviews, withinClosedWindow, type Coverage } from "../github/delta";
 import { fetchBoards } from "../github/boards";
 import { embedAvatar, fetchItem, fetchItems, fetchItemsById, fetchReviewIds, fetchViewer } from "../github/fetch";
 import { repoVisible } from "../repoFilter";
@@ -99,8 +99,8 @@ export interface Inbox {
  * At start the last successful fetch comes from the store, so the list shows at once and also
  * without a connection; a failed fetch keeps it and sets `error`. Fetching starts once the store
  * is open and restarts whenever the organization list changes; it
- * repeats every `settings.refreshMinutes` minutes, or never when that is 0. Within an hour of a
- * full fetch for the same organizations, refreshes only load what changed (see `canDelta`). Narrowing
+ * repeats every `settings.refreshMinutes` minutes, or never when that is 0. Within
+ * `FULL_EVERY_MS` (15 minutes) of a full fetch for the same organizations, refreshes only load what changed (see `canDelta`). Narrowing
  * the closed window, the item limit or switching boards off filters the cached items instead of
  * refetching. A longer closed window loads only the added days, switching boards on only the
  * boards; a higher item limit fetches in full. When GitHub's hourly
@@ -320,7 +320,14 @@ export function useInbox(): Inbox {
       const before = lastFetch.current?.items ?? [];
       const moves = findTransfers(before, fetched);
       let items = (delta ? mergeDelta(before, fetched, coverage.closedDays) : fetched).filter((item) => !moves.has(item.id));
-      if (requested) items = withdrawReviews(items, requested);
+      if (requested) {
+        items = withdrawReviews(items, requested);
+        const unseen = unseenReviews(items, requested);
+        if (unseen.length > 0) {
+          items = addRequested(items, await fetchItemsById(token, unseen, { me: viewer.login, boards: want.boards, signal }));
+          log.debug("new review requests", { loaded: unseen.length });
+        }
+      }
       if (delta) logMerge(before, fetched, items);
       if (moves.size > 0) logTransfers(before, fetched, moves);
       if (delta && want.boards && !had.coverage.boards) items = await withBoards(token, items, signal);
