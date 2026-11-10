@@ -2,6 +2,24 @@
 
 Short records of product decisions whose reason is not obvious from the code. Newest first.
 
+## 2026-11-06
+
+- **D works on an assignment of the viewer alone in every view, and keeps its plan there.** What
+  held in Planned holds in Assigned to me, the Inbox, the status switch and the palette as well:
+  D is "my part done", the item moves to the Done bar, keeps its plan and calendar event, comes
+  back on news, and loses both only when it closes on GitHub. Nobody else carries that work on, so
+  the plan is the one reminder. A shared assignment still ends its plan with D outside Planned, and
+  own items stay locked. Supersedes the rest of "D never finishes an own item or one assigned to
+  you alone" of 2026-11-02 in its part on lone assignments.
+- **D works in Planned on an assignment of the viewer alone, and keeps its plan.** An issue
+  waiting in review is done for now but not finished, and was stuck in Planned: D was locked, and
+  X would have cost the plan and its event. In Planned, D is "my part done" as on a shared
+  assignment: the item leaves Planned for the Done bar of Assigned to me, nothing is left lying
+  since news brings it back, and its plan and calendar event stay until it closes on GitHub. Own
+  items stay locked, and elsewhere D still ends a plan. Supersedes in that part "D never finishes
+  an own item or one assigned to you alone" below and "D ends the plan along with the status" of
+  2026-10-29.
+
 ## 2026-11-02
 
 - **D never finishes an own item or one assigned to you alone.** In every view, D on such an

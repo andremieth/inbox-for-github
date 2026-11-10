@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carriedText, choiceKey, closedPlans, toggleWorkday, weekdayName, planOf, replan, datedAt, datedOf, datedText, dayText, withEvent, isPinnable, dayChoices, followEvent, orphanLinks, rollOver, setPlan, unplan, type Today } from "./plan";
+import { carriedText, choiceKey, closedPlans, toggleWorkday, weekdayName, planOf, replan, datedAt, datedOf, datedText, dayText, eventText, withEvent, isPinnable, keepsPlan, dayChoices, followEvent, orphanLinks, rollOver, setPlan, unplan, type Today } from "./plan";
 
 const days = (now: Date, workdays?: number[]) => dayChoices(now, workdays).map((c) => `${c.kind}:${c.day}`);
 const always = () => true;
@@ -106,6 +106,12 @@ describe("rollOver", () => {
     expect(next.planned).toEqual([{ id: "missing", day: "2026-10-29" }]);
   });
 
+  it("keeps the pin and plan of a loaded item that keeps them, without moving it into Today", () => {
+    const next = rollOver(state(["a"], "2026-10-26", [{ id: "b", day: "2026-10-27" }]), "2026-10-27", () => false, always, always)!;
+    expect(next.focus).toEqual(["a"]);
+    expect(next.planned).toEqual([{ id: "b", day: "2026-10-27" }]);
+  });
+
   it("keeps planned what cannot be pinned", () => {
     const next = rollOver(state([], null, [{ id: "b", day: "2026-10-27" }, { id: "x", day: "2026-10-27" }]), "2026-10-27", (id) => id === "b")!;
     expect(next.focus).toEqual(["b"]);
@@ -148,6 +154,15 @@ describe("datedOf", () => {
     expect(datedOf(open("a", "open", true), ["a"], planned, "2026-10-28")).toBeNull();
     expect(datedOf(open("b", "done"), ["a"], planned, "2026-10-28")).toBeNull();
     expect(isPinnable(open("a", "open", true))).toBe(false);
+  });
+
+  it("brings back an item whose part is done once news came in, and keeps its plan meanwhile", () => {
+    const handedOff = (updates: unknown[], closed = false) => ({ ...open("b", "done", closed), updates }) as Parameters<typeof datedOf>[0];
+    expect(datedOf(handedOff([]), [], planned, "2026-10-28")).toBeNull();
+    expect(keepsPlan(handedOff([]))).toBe(true);
+    expect(datedOf(handedOff([{ by: "bob", at: "2026-10-28T09:00:00Z" }]), [], planned, "2026-10-28")).toEqual({ kind: "planned", day: "2026-10-30" });
+    expect(keepsPlan(handedOff([], true))).toBe(false);
+    expect(keepsPlan(open("b", "done"))).toBe(false);
   });
 
   it("lets T and P take a follow-up, which they end", () => {
@@ -263,5 +278,18 @@ describe("dayText", () => {
 
   it("names the coming work week's days on a Sunday, as the menus offer them", () => {
     expect(dayText("2026-11-04", new Date(2026, 10, 1))).toBe("Wednesday");
+  });
+});
+
+describe("eventText", () => {
+  const day = { kind: "planned", day: "2026-10-29" } as const;
+
+  it("names the event's start, or only that it is in the calendar before the start is known", () => {
+    expect(eventText({ ...day, event: { start: new Date(2026, 9, 29, 14).getTime() } })).toEqual({ text: "14:00", title: "In the calendar · 14:00" });
+    expect(eventText({ ...day, event: {} })).toEqual({ text: "", title: "In the calendar" });
+  });
+
+  it("gives nothing without an event", () => {
+    expect(eventText(day)).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AtSign, Bell, ChevronDown, ChevronRight, Link, RefreshCw, UserPlus, X } from "lucide-react";
+import { AtSign, Bell, CalendarDays, ChevronDown, ChevronRight, Link, RefreshCw, UserPlus, X } from "lucide-react";
 import { useEffect, useRef, useState, type Ref } from "react";
 import type { Classified } from "../../classify";
 import type { Reopen, Status, StatusChange, WriteFailure } from "../../model";
@@ -18,7 +18,7 @@ import { Avatar } from "./Avatar";
 import { Description } from "./Description";
 import { GitHubMark } from "./GitHubMark";
 import { OrcaMark } from "./OrcaMark";
-import { KindIcon, FollowUpChip, PlanChip, PlanIcon } from "./ItemMarks";
+import { KindIcon, FollowUpChip, PlanChip } from "./ItemMarks";
 import type { StatusMap } from "../../workStatus";
 import { AttributeChips } from "./AttributeChips";
 import { ItemProps } from "./ItemProps";
@@ -175,7 +175,7 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
                     title={`${plan?.title ?? t("detail.plan")} (P)`}
                     onClick={(e) => onPlan(e.currentTarget.getBoundingClientRect())}
                   >
-                    <PlanIcon dated={dated} size={13} strokeWidth={1.75} color="var(--st-planned)" />
+                    <CalendarDays size={13} strokeWidth={1.75} color="var(--st-planned)" aria-hidden />
                     {plan?.text ?? t("detail.plan")}
                     <ChevronDown size={12} className="segment-more" />
                   </button>
@@ -186,7 +186,6 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
                   aria-checked={status === s.id && !(plan && s.id === "open")}
                   className={status === s.id && !(plan && s.id === "open") ? "on" : ""}
                   title={`${s.title} (${s.key})`}
-                  disabled={done === "off" && s.id === "done"}
                   onClick={(e) => (s.id === "snoozed" ? onSnooze(e.currentTarget.getBoundingClientRect()) : onStatus(s.id))}
                 >
                   <StatusIcon status={s.id} size={13} />

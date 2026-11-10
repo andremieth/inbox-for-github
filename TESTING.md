@@ -392,6 +392,12 @@ Test-PR, z. B. im Repo `inbox-for-github`.
 - [ ] Ein zugewiesenes Issue wird geschlossen: es erscheint nicht unter Erledigt (war dein Teil
       erledigt, kommt das Schließen einmal als Update). Geschlossene Items mit Erwähnung oder
       Review-Anfrage stehen weiter unter Erledigt.
+- [ ] Ein Issue, das mir allein zugewiesen ist, mit Plan und Termin: D in Mir zugewiesen (Liste und
+      Tabelle), auf seiner Zeile in der Inbox, im Kontextmenü, in ⌘K und „Erledigt“ im
+      Detail-Umschalter sind nicht ausgegraut und setzen „Mein Teil erledigt“, ohne „Plan entfernt“.
+      Das Item steht unter „Fertig“, Plan und Termin bleiben, auch nach einem Neustart. Neue
+      Aktivität bringt es zurück, schließen auf GitHub nimmt Plan und Termin. Bei einer geteilten
+      Zuweisung nimmt D außerhalb von Geplant den Plan weiter mit; ein eigenes Item bietet D nicht an.
 - [ ] Ein „Erledigt“ auf einer Zuweisung aus älteren Versionen steht nach dem Start in „Fertig“.
 
 ## Mehrfachauswahl
@@ -411,10 +417,17 @@ Test-PR, z. B. im Repo `inbox-for-github`.
 - [ ] Leisten nach Tag: Heute, Morgen, Diese Woche, Nächste Woche, Später, Ohne Datum;
       früheste zuerst, der Sortierknopf dreht die datierten, „Ohne Datum“ bleibt unten.
 - [ ] Rechts in der Zeile „Heute“ oder der geplante Tag („Morgen“, „Do“); Tooltip mit vollem Datum.
-      Vor dem Tag steht der Kalender, mit Haken bei einem Termin; „Heute“ trägt nur mit Termin ein
-      Icon. So auch in der Tabellen-Darstellung; dort enden die Chips der Attribute auf jeder Zeile an
-      derselben Stelle, auch neben „Donnerstag“ oder einer Wiedervorlage. Übertragenes
-      aus Heute trägt „Seit gestern“ in Rot in der Kontextzeile.
+      Vor dem Tag steht der Kalender, vor „Heute“ keiner. Ein Item mit Termin trägt in der Liste am
+      Ende der Kontextzeile, mit „·“ abgetrennt, einen Kalender mit Uhr und die Startzeit (Tooltip
+      „Im Kalender · 14:00“); ohne Termin fehlt er, und ein langer Kontext endet weiter auf „…“. So auch in der Tabellen-Darstellung und am Plan-Chip im Detail; in der
+      Tabelle enden die Chips der Attribute auf jeder Zeile an derselben Stelle, auch neben
+      „Donnerstag“ oder einer Wiedervorlage. Übertragenes aus Heute trägt „Seit gestern“ in Rot in
+      der Kontextzeile.
+- [ ] D auf einem geplanten Issue, das mir allein zugewiesen ist, und „Erledigt“ im Detail-Umschalter: Toast „#12 → Mein Teil erledigt“,
+      ohne „Plan entfernt“; das Item verlässt Geplant und steht in Mir zugewiesen unter „Erledigt“.
+      Plan und Termin im Kalender bleiben, auch am nächsten Morgen. Neue Aktivität bringt es mit
+      seinem Tag zurück nach Geplant; schließen auf GitHub nimmt Plan und Termin. ⌘Z stellt es
+      zurück. Ein eigenes Item bietet D auch hier nicht an.
 - [ ] Die Seitenleiste zählt alles, was hier steht, nie fett; ein Item, das zugleich in der Inbox
       oder Mir zugewiesen steht, zählt dort weiter.
 - [ ] Das Icon-Menü im Kopf (Liste/Tabelle) schaltet die Darstellung um; die Tabelle hat

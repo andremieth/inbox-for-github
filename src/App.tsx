@@ -24,7 +24,7 @@ import { SnoozeDatePicker } from "./ui/parts/SnoozeDatePicker";
 import { followUpOn, untilText } from "./ui/snooze";
 import { isWaiting } from "./ui/followUp";
 import { canSwitchDemo, isDemo, rememberDemo } from "./demo/flag";
-import { doneAccess, planStatus } from "./ui/statusPlan";
+import { doneAccess, keepsItsPlan, planStatus } from "./ui/statusPlan";
 import { StatusIcon } from "./ui/parts/StatusIcon";
 import { Bell, CalendarDays, Code, Ellipsis, ExternalLink, Hash, Link, Mail, MailOpen, RefreshCw, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { CommandPalette } from "./ui/parts/CommandPalette";
@@ -48,7 +48,7 @@ import { useOrca } from "./ui/useOrca";
 import { addToOrca, openInOrca, pathText } from "./orca";
 import { useSelection } from "./ui/useSelection";
 import { withAssignees, withSelfAssigned, groupByType, groupPlate, isActiveBar, isTypeGroup, leaveClears, localDay, moveBar, moveTypeBar, onPlate, plateCount, type PlateGroup, type TableGroup } from "./ui/assignments";
-import { choiceKey, choiceText, closedPlans, datedAt, datedOf, datedText, dayChoices, dayText, isPinnable, orphanLinks, planOf, replan, rollOver, setPlan, todayOf, unplan, withEvent, without, type Today } from "./ui/plan";
+import { choiceKey, choiceText, closedPlans, datedAt, datedOf, datedText, dayChoices, dayText, isPinnable, keepsPlan, orphanLinks, planOf, replan, rollOver, setPlan, todayOf, unplan, withEvent, without, type Today } from "./ui/plan";
 import { attributeOptions, combineAttributes, shownKeys, tableKeys } from "./ui/attributes";
 import { useCollapsed } from "./ui/useCollapsed";
 import { unseenSettings } from "./ui/newSettings";
@@ -187,7 +187,8 @@ export default function App() {
     return () => window.removeEventListener("mousemove", move);
   }, [hoverActs]);
   const me = inbox.me ?? "";
-  /** How D is offered for an item: as usual, greyed out, or not at all (see `doneAccess`). */
+  /** How D is offered for an item: as usual, or not at all (see `doneAccess`). */
+  const inPlanned = bucket === "planned";
   const doneIn = (c: Classified) => doneAccess(c, me);
   const unreadInboxIds = useMemo(
     () => new Set(inbox.classified.filter((c) => c.bucket === "inbox" && (inbox.unreadMarks.has(c.item.id) || unreadInInbox(c, inbox.seen, me))).map((c) => c.item.id)),
@@ -690,9 +691,10 @@ export default function App() {
   /** D or O on the marked items, each as it would be for the item alone (my part done, ticking off an update, back in the work). */
   const bulkStatus = (status: Status) => {
     const files = (c: Classified) => planStatus(c, status, me).do === "file";
+    const keeps = (c: Classified) => keepsItsPlan(c, planStatus(c, status, me), me, inPlanned);
     const changed = marked.filter((c) => (!c.item.closed || files(c)) && planStep(c, status) !== null);
     const [filed, set] = [changed.filter(files), changed.filter((c) => !files(c))];
-    const steps = [...changed.map((c) => planStep(c, status)!), ...(status === "done" ? unplanStep(set) : [])];
+    const steps = [...changed.map((c) => planStep(c, status)!), ...(status === "done" ? unplanStep(set.filter((c) => !keeps(c))) : [])];
     const blocked = open.filter((c) => planStatus(c, status, me).do === "blocked").length;
     if (steps.length === 0) return blocked > 0 ? actions.notify(t("marks.blocked", { count: blocked })) : undefined;
     const parts = [
@@ -798,8 +800,8 @@ export default function App() {
       step.run();
       return actions.announce(t("toast.filed", { number }), step.undo, step.run);
     }
-    // D ends a plan too, in the same toast and undo.
-    const ends = status === "done" ? unplanStep([c]) : [];
+    // D ends a plan too, in the same toast and undo, unless the item keeps it (see `keepsItsPlan`).
+    const ends = status === "done" && !keepsItsPlan(c, plan, me, inPlanned) ? unplanStep([c]) : [];
     const change = (text: string, run: () => void) => {
       const again = () => (run(), ends.forEach((s) => s.run()));
       again();
@@ -1032,7 +1034,6 @@ export default function App() {
       keys: s.key,
       icon: <StatusIcon status={s.id} size={14} />,
       checked: c.status === s.id && !(planned && s.id === "open"),
-      disabled: s.id === "done" && doneIn(c) === "off",
       onSelect: () => applyStatus(c, s.id),
       // Snoozing offers its dates as a submenu, also to change the date; "Open" brings it back.
       ...(s.id === "snoozed" && { items: snoozeEntries(c) }),
@@ -1066,7 +1067,8 @@ export default function App() {
       const day = localDay();
       setToday(day);
       const pinnable = (id: string) => classified.some((c) => c.item.id === id && isPinnable(c));
-      const next = rollOver(settings, day, pinnable, (id) => classified.some((c) => c.item.id === id));
+      const keeps = (id: string) => classified.some((c) => c.item.id === id && keepsPlan(c));
+      const next = rollOver(settings, day, pinnable, (id) => classified.some((c) => c.item.id === id), keeps);
       if (next) void saveSettings({ ...settings, ...next });
     };
     check();
