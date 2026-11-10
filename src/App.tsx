@@ -182,19 +182,8 @@ export default function App() {
     const shown = plate.map((g) => g.group).filter(isTypeGroup);
     void inbox.saveSettings({ ...settings, typeOrder: moveTypeBar(shown, settings.typeOrder, bar, target) });
   };
-  const [popup, setPopup] = useState(false);
-  const [hovered, setHovered] = useState<string | null>(null);
-  const hoverActs = inbox.settings.hoverActs;
-  useEffect(() => {
-    if (!hoverActs) return;
-    // mousemove, not mouseover: rows scrolling under a resting pointer must not take the keys.
-    const move = (e: MouseEvent) => {
-      const row = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-id]") : null;
-      setHovered(row?.dataset.id ?? null);
-    };
-    window.addEventListener("mousemove", move);
-    return () => window.removeEventListener("mousemove", move);
-  }, [hoverActs]);
+  /** The detail pop-up of the tables: closed, or how its row was reached, by a click or with the keyboard. */
+  const [popup, setPopup] = useState<false | "pointer" | "keys">(false);
   const me = inbox.me ?? "";
   /** How D is offered for an item: as usual, or not at all (see `doneAccess`). */
   const inPlanned = bucket === "planned";
@@ -355,11 +344,15 @@ export default function App() {
     if (!to) return;
     setMarks((m) => markRange(m, ids, from, to));
     selection.select(to);
+    keyboardOwnsPopup();
   };
   const step = (offset: number) => {
     clearMarks();
     selection.move(offset);
+    keyboardOwnsPopup();
   };
+  /** An open pop-up whose row the keyboard moved on (or a jump landed in) keeps that row selected when it closes. */
+  const keyboardOwnsPopup = () => popup && setPopup("keys");
   // Assigned to me keeps its folded bars unprefixed, as stored before other tables existed.
   const tableFolded = useMemo(
     () => (bucket === "assigned" ? bars.collapsed : new Set([...bars.collapsed].filter((k) => k.startsWith(`${bucket}:`)).map((k) => k.slice(bucket.length + 1)))),
@@ -440,10 +433,8 @@ export default function App() {
     setSprints({ assigned: "all", authored: "all", planned: "all", snoozed: "all" });
     setSearch(null);
   };
-  // With "hoverActs", keys act on the row under the mouse; the arrow keys and an open pop-up hand them back to the selection.
-  const hoveredEntry = inbox.settings.hoverActs && !(popup && table) && hovered ? entries.find((c) => c.item.id === hovered) : undefined;
-  const target = hoveredEntry ?? current;
-  const withCurrent = (fn: (c: Classified) => void) => () => target && fn(target);
+  /** A key for the selected item; with none selected it says so, since a click that closed a pop-up leaves none. */
+  const withCurrent = (fn: (c: Classified) => void) => () => (current ? fn(current) : entries.length > 0 && actions.notify(t("noop.noSelection")));
 
   const pinnable = isPinnable;
   const toggleFocus = (c: Classified, extra: Step[] = []) => {
@@ -1107,10 +1098,26 @@ export default function App() {
   }, [ready, settings, changeSettings]);
 
   // The pop-up belongs to its item: when the item leaves the list, it closes instead of showing the next one.
-  if (popup && selection.replaced) setPopup(false);
+  // Its item left the table (D, a follow-up, a refresh): the successor is a row the viewer did not pick by mouse.
+  if (popup && selection.replaced) {
+    if (popup === "pointer") selection.select(null);
+    setPopup(false);
+  }
   const showPopup = popup && table && current !== null && !selection.replaced;
+  /** Enter or Space on a row: its pop-up, without the marks, as a click opens it. */
+  const openPopup = () => {
+    clearMarks();
+    setPopup("keys");
+  };
+  const onMarks = marked.length > 0 && !showPopup;
+  /** Closing the pop-up lets go of a row reached by a click; one reached with the keyboard stays selected, as the cursor to move on from. */
+  const closePopup = () => {
+    setPopup(false);
+    if (popup === "pointer") selection.select(null);
+  };
   useEffect(() => setLogContext({ view: bucket, popup: showPopup }), [bucket, showPopup]);
-  const openedId = current?.item.id;
+  // In a table a selected row shows nothing of the item; only its pop-up counts as opened.
+  const openedId = !table || showPopup ? current?.item.id : undefined;
   const openedUpdatedAt = current?.item.updatedAt;
   const markSeen = inbox.markSeen;
   const windowFocused = useWindowFocus();
@@ -1130,34 +1137,36 @@ export default function App() {
 
   useHotkeys(
     {
-      ArrowDown: (e) => (setHovered(null), e.shiftKey ? extend(1) : step(1)),
-      ArrowUp: (e) => (setHovered(null), e.shiftKey ? extend(-1) : step(-1)),
-      // With items marked, D, O, F, X, U, R, ⌃A and ⌃U act on all of them.
-      d: marked.length > 0 ? () => bulkStatus("done") : withCurrent((c) => applyStatus(c, "done")),
-      f: marked.length > 0 ? openBulkTimes : withCurrent(snooze),
-      o: marked.length > 0 ? () => bulkStatus("open") : withCurrent((c) => applyStatus(c, "open")),
-      x: marked.length > 0 ? () => removeMarkedFollowUps(true) : withCurrent(removeWhen),
+      ArrowDown: (e) => (e.shiftKey ? extend(1) : step(1)),
+      ArrowUp: (e) => (e.shiftKey ? extend(-1) : step(-1)),
+      // With items marked, D, O, F, X, U, R, ⌃A and ⌃U act on all of them; an open pop-up keeps the keys for its item.
+      d: onMarks ? () => bulkStatus("done") : withCurrent((c) => applyStatus(c, "done")),
+      f: onMarks ? openBulkTimes : withCurrent(snooze),
+      o: onMarks ? () => bulkStatus("open") : withCurrent((c) => applyStatus(c, "open")),
+      x: onMarks ? () => removeMarkedFollowUps(true) : withCurrent(removeWhen),
       t: withCurrent((c) => (pinnable(c) ? toggleFocus(c) : actions.notify(t("noop.notPinnable", { number: c.item.number })))),
       p: withCurrent(plan),
-      u: marked.length > 0 ? () => toggleRead(marked) : withCurrent((c) => toggleRead([c])),
-      r: marked.length > 0 ? () => toggleRead(marked) : withCurrent((c) => toggleRead([c])),
+      u: onMarks ? () => toggleRead(marked) : withCurrent((c) => toggleRead([c])),
+      r: onMarks ? () => toggleRead(marked) : withCurrent((c) => toggleRead([c])),
       "mod+z": actions.undo,
       "mod+y": actions.redo,
       "ctrl+o": withCurrent((c) => void openUrl(c.item.url)),
       w: withCurrent(runOrca),
-      "ctrl+a": marked.length > 0 ? () => (assignAll(open), clearMarks()) : withCurrent(assignMe),
-      "ctrl+u": marked.length > 0 ? () => (leaveAll(open), clearMarks()) : withCurrent((c) => leave(c)),
+      "ctrl+a": onMarks ? () => (assignAll(open), clearMarks()) : withCurrent(assignMe),
+      "ctrl+u": onMarks ? () => (leaveAll(open), clearMarks()) : withCurrent((c) => leave(c)),
       c: withCurrent((c) => void copy(itemLink(c.item, "url"))),
       // Closes and clears, innermost first; filters and the view stay (they reset from the palette).
-      Escape: () => (showPopup ? setPopup(false) : search !== null ? setSearch(null) : marks.size > 0 ? setMarks(new Set()) : selection.select(null)),
-      Enter: () => (selectedBar ? toggleBar(selectedBar) : table && current && setPopup(true)),
-      " ": () => (selectedBar ? toggleBar(selectedBar) : table && current && setPopup(!popup)),
+      Escape: () => (showPopup ? closePopup() : search !== null ? setSearch(null) : marks.size > 0 ? setMarks(new Set()) : selection.select(null)),
+      Enter: () => (selectedBar ? toggleBar(selectedBar) : table && current && openPopup()),
+      " ": () => (selectedBar ? toggleBar(selectedBar) : showPopup ? closePopup() : table && current && openPopup()),
       ArrowRight: () => selectedBar && setBar(selectedBar, true),
       ArrowLeft: () => (selectedBar ? setBar(selectedBar, false) : !showPopup && foldCurrent()),
+      // The web view walks buttons whatever the Mac's "Keyboard navigation" says; the app's own switch decides, in text fields too.
+      ...(settings.tabToButtons ? {} : { Tab: () => undefined }),
       // Switches of the app, not of an item, so they go with ⌘.
       "mod+t": () => (asking && !table ? setAsk((f) => nextOf(ASK_FILTERS, f)) : setKind((k) => nextOf(KINDS.map((o) => o.id), k))),
       "mod+g": toggleGrouping,
-      // The selected item alone, as #17 decided; with nothing selected, everything, as before.
+      // The selected item alone; ⌘R refreshes everything.
       "ctrl+r": withCurrent(reloadCurrent),
       "mod+r": () => void inbox.refresh(),
       "mod+shift+r": () => void inbox.refresh(true),
@@ -1182,6 +1191,7 @@ export default function App() {
     setAsk("all");
     setBucket(viewOf(c, me) ?? "inbox");
     setReveal(c.item.id);
+    keyboardOwnsPopup();
   };
   /** A click on a notification: its item, or the inbox for the summary of several. */
   const openNotified = (itemId: string | null) => {
@@ -1293,7 +1303,7 @@ export default function App() {
             clearMarks();
             selection.select(id);
           }}
-          onOpen={() => setPopup(true)}
+          onOpen={() => setPopup("pointer")}
           marks={marks}
           onMark={mark}
           onClearMarks={() => setMarks(new Set())}
@@ -1389,7 +1399,7 @@ export default function App() {
         </>
       )}
       {showPopup && (
-        <div className="overlay" onMouseDown={() => setPopup(false)}>
+        <div className="overlay" onMouseDown={closePopup}>
           <div className="item-popup" role="dialog" aria-label={current.item.title} onMouseDown={(e) => e.stopPropagation()}>
               <Detail
                 entry={current}
@@ -1421,7 +1431,7 @@ export default function App() {
             onSnooze={(at: DOMRect) => current && setSnoozeMenu({ entry: current, x: at.left, y: at.bottom + 4 })}
             onRemoveFollowUp={() => current && removeFollowUp(current)}
             reloading={reloading === current?.item.id}
-                onClose={() => setPopup(false)}
+                onClose={closePopup}
               />
           </div>
         </div>

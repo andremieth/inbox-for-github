@@ -4,6 +4,25 @@ Short records of product decisions whose reason is not obvious from the code. Ne
 
 ## 2026-11-10
 
+- **Tab reaches the main window's buttons only with a setting, off by default.** Native Mac apps
+  walk text fields only unless "Keyboard navigation" is on in the system; the web view walks
+  buttons regardless, so the app carries the switch itself (`tabToButtons`). With it on, a button
+  the keyboard focused takes Enter and Space, which otherwise open the pop-up or fold the bar;
+  after a click they are shortcuts again.
+- **A row of a table counts as seen only once its pop-up showed it,** not while it is merely
+  selected: the row shows nothing of the item, and a right click selects it too.
+- **An open pop-up owns the keys.** With items marked and a pop-up open, D, F and the others act
+  on the shown item, not on the marks; Enter and Space drop the marks as a click does.
+- **Closing a pop-up lets go of a row reached by a click,** and keeps one reached with the
+  keyboard: the selection is the keyboard's cursor, and a click meant the item, not the row. The
+  same holds when the pop-up closes because its item left the table, as after D: a click-opened
+  one leaves nothing selected, so a second D cannot hit the next row unseen; a key-opened one
+  moves on to the next row, for working through a table. A key pressed with no item selected
+  says so in a toast.
+- **Keys act on the selection only; the row under the mouse is gone as a target.** `hoverActs`
+  made some keys follow the pointer and others (Enter, Space, the palette) the selection, and a
+  resting pointer could still send D to the wrong row. The switch is removed; the stored value
+  stays unused. Supersedes "`hoverActs` stays as a setting" of 2026-10-30.
 - **Assigned to me and Created by me can group by repository,** one bar per repository by name,
   for whoever works through one codebase at a time. Follow-up, Blocked and Finished stay at the
   bottom as in every grouping. Within a repository bar rows go by the time they show, without

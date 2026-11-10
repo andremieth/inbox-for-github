@@ -27,6 +27,10 @@ Test-PR, z. B. im Repo `inbox-for-github`.
 - [ ] Footer zeigt Verbrauchsring, Einstellungen, Fragezeichen; der Radiergummi sitzt in der Überschrift „Nach Repository filtern“.
 - [ ] Der Radiergummi erscheint nur, wenn ein Repo gewählt ist; Klick setzt es zurück. ⌘K → „Filter
       zurücksetzen“ setzt alle Filter zurück (Repos, Issues/Pull Requests, Sonstige/Reviews, Sprint).
+- [ ] Pop-up in den Tabellen per Klick geöffnet: Schließen (Esc, Leertaste, ✕ oder Klick daneben) hebt auch die
+      Auswahl der Zeile auf; ↑/↓ macht danach bei ihr weiter. Per Enter oder Leertaste geöffnet, oder im Pop-up mit
+      ↑/↓ weitergegangen: die Zeile bleibt ausgewählt.
+- [ ] Esc bei offener Ansichts-Info (Glühbirne) schließt nur die Info: Suche, Markierung und Auswahl bleiben.
 - [ ] Esc schließt von innen nach außen: Menü, Pop-up, Markierung, dann die Auswahl (Detail zeigt
       „Nichts ausgewählt“). Filter und Ansicht bleiben, auch mehrfach gedrückt. ↑/↓ danach macht
       beim zuletzt gewählten Item weiter.
@@ -196,12 +200,24 @@ Test-PR, z. B. im Repo `inbox-for-github`.
 - [ ] Zurück auf „Sofort“ mit Gesammeltem: die Zusammenfassung kommt sofort. Beim ersten Einschalten
       einer Zeitplanung kommt nichts nach, was vorher da war.
 
-## Tasten unter der Maus
+## Tasten und Auswahl
 
-- [ ] Maus über einer Zeile (nicht der ausgewählten), D drücken: diese Zeile wird erledigt, die
-      Auswahl und die offene Detailansicht bleiben. Ebenso F, X, O, U, R, P, C, ⌃A, ⌃U, ⌃O, ⌃R.
-- [ ] Nach ↑/↓ wirken die Tasten wieder auf die Auswahl, bis die Maus sich bewegt. Mit offenem
-      Pop-up wirken sie aufs Pop-up. Einstellungen › Darstellung › Listen: ausgeschaltet nur Auswahl.
+- [ ] Tasten wirken nur auf die Auswahl, nie auf die Zeile unter der Maus; die Einstellung dazu gibt es nicht mehr.
+- [ ] Ohne Auswahl (Pop-up per Klick geöffnet und geschlossen, Esc, oder eine Leiste ausgewählt) melden D, F, O, X,
+      T, P, U, R, W, C, ⌃A, ⌃U, ⌃O und ⌃R per Toast „Kein Item ausgewählt“; in einer leeren Ansicht kommt kein Toast.
+- [ ] Einstellungen › Darstellung › Listen › „Tab erreicht Knöpfe“ aus (Standard): Tab und ⇧Tab tun im Hauptfenster
+      nichts, auch nicht in der Suche oder im Kommentarfeld. An: Tab erreicht die Knöpfe; Enter und Leertaste drücken den fokussierten Knopf (z. B. Sortierung), statt
+      das Pop-up zu öffnen. Nach einem Mausklick auf einen Knopf öffnen Enter und Leertaste wieder das Pop-up der Auswahl.
+- [ ] Schalter an, vom Kommentarfeld mit Tab zu „Senden“: Enter sendet. Sortierung anklicken, mit ⌘Tab weg und zurück:
+      Enter öffnet das Pop-up der Auswahl, die Sortierung bleibt.
+- [ ] Pop-up per Klick geöffnet, D (Leiste „Erledigt“ eingeklappt): das Pop-up schließt, keine Zeile ist ausgewählt, ein
+      zweites D zeigt „Kein Item ausgewählt“. Per Enter geöffnet, D: das Pop-up schließt, die nächste Zeile ist ausgewählt.
+- [ ] Pop-up per Klick geöffnet, dann mit ⇧↓ weiter: Esc schließt es, die Zeile bleibt ausgewählt. Ebenso nach einem
+      Sprung aus der Palette (⌘K) bei offenem Pop-up.
+- [ ] Tabelle: mehrere mit ⇧↓ markieren, Enter: das Pop-up öffnet ohne Markierung, D erledigt nur das gezeigte Item.
+      Im Pop-up mit ⇧↓ weitermarkiert: D wirkt weiter nur aufs gezeigte Item.
+- [ ] Tabelle: eine neue Zuweisung nur auswählen (↑/↓, Rechtsklick, ⌘-Klick) und warten: „Neu“ und Fettdruck bleiben.
+      Erst das offene Pop-up nimmt sie nach gut zwei Sekunden weg. In den Listen reicht die Auswahl wie bisher.
 
 ## Gelesen und ungelesen
 
