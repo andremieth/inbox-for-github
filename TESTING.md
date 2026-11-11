@@ -121,7 +121,7 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       (↻), Erledigt ein grüner Haken; so im Detail-Umschalter, im Kontextmenü, in ⌘K und im Protokoll,
       in Hell und Dunkel gut erkennbar.
 - [ ] Item mit F auf Wiedervorlage legen, mit D erledigen, mit O wieder öffnen: jedes Mal eine Zeile in den Aktivitäten, sobald dazwischen etwas passiert ist (ein Beitrag, ein Review, ein Ereignis); ein Status, der gleich ersetzt wird, gilt als Korrektur und fehlt dort.
-- [ ] D auf einem erledigten Item ändert nichts; F auf einem in Wiedervorlage öffnet die Zeiten,
+- [ ] D in „Erledigt“ ändert nichts; D in „Mir zugewiesen“ auf einem Item mit fertigem Teil zeigt „Dein Teil ist schon erledigt; O nimmt ihn zurück“; D in der Wiedervorlage beendet sie („Wiedervorlage entfernt“, das Item kehrt zurück); F auf einem in Wiedervorlage öffnet die Zeiten,
       eine neue Zeit verschiebt das Datum. Zurück auf Offen geht nur mit O (oder über das Menü).
 - [ ] ⌃O öffnet das Item auf GitHub (auch Kontextmenü, ⌘K, Button im Detail); O allein öffnet
       nichts im Browser. Im Kommentarfeld tut ⌃O nichts an der App.
@@ -228,6 +228,11 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       das Badge am Dock sinkt um eins. Das Badge zählt nur, was wieder oder noch zu tun ist: ungelesene Inbox-Items und ungelesene Zuweisungen (ohne die Leisten Blockiert, Wiedervorlage und Fertig); ein mit U markiertes Item in Wiedervorlage oder Erledigt zählt nicht. Ein neuer Beitrag eines anderen macht sie wieder fett.
       Die Zeit zählt nur bei vorderem Fenster: zu einer anderen App wechseln stoppt sie und
       beginnt beim Zurückkommen von vorn; schnelles Durchblättern mit ↑/↓ liest nichts.
+- [ ] Punkt für Neues: Ein nie geöffnetes Item mit einem Beitrag nach der Zuweisung oder Eröffnung
+      hat den blauen Punkt, eines ohne Zuweisung an dich (Geplant) nie; eine neue Zuweisung
+      zeigt ihn auch, der Tooltip nennt den Grund. Nur was der Verlauf im Detail zeigt, zählt.
+- [ ] Bei einem Item, das du eröffnet hast, zeigt der Verlauf jede Zuweisung („bob hat sich
+      zugewiesen“, „alice hat bob zugewiesen“); eine Zuweisung durch andere macht den Punkt an.
 - [ ] Ansicht in der Seitenleiste samt Zahl ist fett, solange sie Ungelesenes hat; Geplant,
       Erledigt und Von mir erstellt nie.
 - [ ] U oder R auf einem gelesenen Item macht es ungelesen (fett, Badge +1), auch direkt nach dem Öffnen;
@@ -263,8 +268,8 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       heraus; D legt ihn ab („#7: abgelegt“), er bleibt in Von mir erstellt, ⌘Z holt ihn zurück.
       Mit Einstellungen › Regeln › „Feedback auf das, was du erstellt hast“ = „Änderungen
       angefordert“ zählen nur solche Reviews, mit „Aus“ keines. Bots zählen nie.
-- [ ] Ein Beitrag eines anderen auf einer Zuweisung holt sie in die Inbox; D legt ab, ohne „Mein
-      Teil erledigt“. Mit Wiedervorlage bleibt sie in ihrer Leiste wartend und steht zusätzlich in der Inbox.
+- [ ] Ein Beitrag eines anderen auf einer Zuweisung holt sie in die Inbox; D in der Inbox legt ab, ohne „Mein
+      Teil erledigt“; D in „Mir zugewiesen“ setzt „Mein Teil erledigt“, auch mit offener Erwähnung (sie bleibt dann in der Inbox, bis D dort sie ablegt). Mit Wiedervorlage bleibt sie in ihrer Leiste wartend und steht zusätzlich in der Inbox.
 - [ ] In einem Review-Thread eines fremden PRs antworten, dann antwortet der Autor: „@alice hat in
       deinem Thread geantwortet“, auch wenn der PR erledigt war. Eine Antwort dort oder D nimmt ihn heraus.
 - [ ] Jemand anderes schließt ein eigenes Issue als „nicht geplant“: „Von @bob geschlossen“ in der
@@ -281,7 +286,7 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       steht unter „Zugewiesen“.
 - [ ] Rechts in der Zeile nur das Alter („3W“), Tooltip „Eröffnet am …“; kein Avatar. Sortiert nach
       Eröffnung, der Sortierknopf dreht das.
-- [ ] Eigene Items mit offener Erwähnung stehen hier und zusätzlich in der Inbox; geschlossene und gemergte verschwinden. D erledigt dort nichts: auf einem eigenen PR, einem eigenen Issue ohne weiteren Zuständigen oder ohne dich als Zuständigen sagt eine Meldung, dass es auf GitHub noch offen ist (schließen oder mergen dort, oder F). Hat ein eigenes Issue außer dir einen weiteren Zuständigen, wird D zu „Mein Teil erledigt“. Ein wieder geöffnetes eigenes Item legt D ab, ohne es zu verstecken. Mit Markierten überspringt D diese und nennt, wie viele.
+- [ ] Eigene Items mit offener Erwähnung stehen hier und zusätzlich in der Inbox; geschlossene und gemergte verschwinden. Hier gibt es kein D: weder Zeile, Kontextmenü noch ⌘K bieten es an, ein eigener PR oder ein eigenes Issue endet auf GitHub (schließen oder mergen dort, oder F). Was nach dir fragt (Erwähnung, Feedback, Wiedereröffnung), legst du in der Inbox mit D ab. Mit Markierten überspringt D diese Items und nennt, wie viele.
 
 ## Mir zugewiesen
 
@@ -396,14 +401,16 @@ Test-PR, z. B. im Repo `inbox-for-github`.
 
 ## Mein Teil erledigt (Test-Issue)
 
-- [ ] D auf einer offenen Zuweisung: Toast „Mein Teil erledigt“, das Item steht in der Leiste
+- [ ] D in „Mir zugewiesen“ auf einer Zuweisung mit offener Erwähnung öffnet unter der Zeile ein kleines Menü: Enter („Nur mein Teil“) setzt „Mein Teil erledigt“, die Erwähnung bleibt in der Inbox; D („Offene Anfragen auch ablegen“) tut beides in einem Toast und einem Rückgängig; Esc tut nichts. Ohne offene Anfrage wirkt D sofort. Mit Markierten erscheint das Menü einmal für alle.
+
+- [ ] D auf einer offenen Zuweisung ohne offene Erwähnung oder Review-Anfrage: Toast „Mein Teil erledigt“, das Item steht in der Leiste
       „Fertig“ ganz unten (mit der Beschreibung „Auf GitHub noch offen …“; unter Typ, Status und Zeit gleich, nicht mitgezählt),
       zusammen mit Items, die auf dem Board fertig sind; eine eigene Leiste dafür gibt es nicht. ⌘Z
-      nimmt es zurück. Im Kontextmenü heißt D dort „Mein Teil erledigt“.
+      nimmt es zurück. Im Kontextmenü heißt D in „Mir zugewiesen“ „Mein Teil erledigt“, in der Inbox bei einer Erwähnung, Review-Anfrage oder Feedback „Ablegen“ (Toast „abgelegt“, der Status bleibt), bei einem Item anderer „Erledigt“. Hat ein Item nach „Mein Teil erledigt“ noch eine offene Erwähnung, steht es in der Inbox; D dort legt sie ab, und es steht wieder in „Mir zugewiesen“.
 - [ ] Jemand kommentiert, das Board wechselt den Status (nach der stündlichen Aktualisierung), ein
       PR wird verknüpft oder das Issue geschlossen: das Item steht als „Update: …“ in der Inbox,
-      mit Mitteilung. D dort hakt es ab, das Item bleibt in der Leiste (ein geschlossenes verlässt danach die Tabelle); ⌘Z nimmt das Abhaken zurück.
-- [ ] O auf einem Item in der Leiste holt es zurück in die Arbeit („wieder in deiner Arbeit“); D tut dort nichts.
+      mit Mitteilung. D in der Inbox hakt es ab und legt weitere Anfragen daran (etwa eine Erwähnung) mit ab, das Item bleibt in der Leiste (ein geschlossenes verlässt danach die Tabelle); ⌘Z nimmt das Abhaken zurück.
+- [ ] O auf einem Item in der Leiste holt es zurück in die Arbeit („wieder in deiner Arbeit“); ein zweites D dort zeigt nur den Hinweis, dass dein Teil schon erledigt ist.
 - [ ] ⌃U „Mich als Zuständigen entfernen“ (auch Kontextmenü, ⌘K): auf GitHub nicht mehr zugewiesen,
       und das Item ist überall raus, auch nicht unter Erledigt; nur eine Erwähnung holt es zurück.
       Ohne WLAN: Hinweis, und du bist wieder zugewiesen, mit dem Status von vorher.
@@ -414,8 +421,8 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       Tabelle), auf seiner Zeile in der Inbox, im Kontextmenü, in ⌘K und „Erledigt“ im
       Detail-Umschalter sind nicht ausgegraut und setzen „Mein Teil erledigt“, ohne „Plan entfernt“.
       Das Item steht unter „Fertig“, Plan und Termin bleiben, auch nach einem Neustart. Neue
-      Aktivität bringt es zurück, schließen auf GitHub nimmt Plan und Termin. Bei einer geteilten
-      Zuweisung nimmt D außerhalb von Geplant den Plan weiter mit; ein eigenes Item bietet D nicht an.
+      Aktivität bringt es zurück, schließen auf GitHub nimmt den Plan, der Termin bleibt. Auch bei einer geteilten
+      Zuweisung behält D den Plan, in jeder Ansicht; ein eigenes Item bietet D nicht an.
 - [ ] Ein „Erledigt“ auf einer Zuweisung aus älteren Versionen steht nach dem Start in „Fertig“.
 
 ## Mehrfachauswahl
@@ -444,7 +451,7 @@ Test-PR, z. B. im Repo `inbox-for-github`.
 - [ ] D auf einem geplanten Issue, das mir allein zugewiesen ist, und „Erledigt“ im Detail-Umschalter: Toast „#12 → Mein Teil erledigt“,
       ohne „Plan entfernt“; das Item verlässt Geplant und steht in Mir zugewiesen unter „Erledigt“.
       Plan und Termin im Kalender bleiben, auch am nächsten Morgen. Neue Aktivität bringt es mit
-      seinem Tag zurück nach Geplant; schließen auf GitHub nimmt Plan und Termin. ⌘Z stellt es
+      seinem Tag zurück nach Geplant; schließen auf GitHub nimmt den Plan, der Termin bleibt. ⌘Z stellt es
       zurück. Ein eigenes Item bietet D auch hier nicht an.
 - [ ] Die Seitenleiste zählt alles, was hier steht, nie fett; ein Item, das zugleich in der Inbox
       oder Mir zugewiesen steht, zählt dort weiter.
@@ -480,8 +487,9 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       nach „Eintragen“, nach „Ändern“ auf eine andere Zeit und nach einem Verschieben im
       Kalender auch die neue. Ein Ganztagstermin zeigt keine Uhrzeit, ein Plan ohne Termin den
       leeren Kalender.
-- [ ] X, D und F löschen den Termin, ⌘Z legt ihn zur alten Zeit neu an. Schließen auf GitHub
-      löscht ihn auch.
+- [ ] X (auch an Markierten) und T zum Abschalten löschen den Termin, ⌘Z legt ihn zur alten Zeit
+      neu an. F und D beenden den Plan, der Termin bleibt im Kalender, nur die Verknüpfung geht
+      (⌘Z stellt sie wieder her); Schließen auf GitHub lässt ihn ebenfalls stehen.
 - [ ] Im Kalender (z. B. Outlook) den Termin auf einen anderen Tag ziehen: nach dem Sync plant die
       App das Item um, mit Hinweis. Den Termin löschen: der Plan geht, das Item steht wieder in der
       Inbox.
@@ -569,6 +577,11 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       `docs/reference/orca.md`).
 - [ ] Ein Repo, das erst in Orca hinzugefügt wird, bekommt den Eintrag spätestens eine Minute
       nach dem Zurückwechseln in die App.
+
+## Hinweise und Menüs
+
+- [ ] Der Hinweis (Toast) steht mittig über Liste und Detail beziehungsweise der Tabelle, rechts der Seitenleiste, nicht mittig im Fenster.
+- [ ] Die Menüs (Status, Plan, Wiedervorlage, Rückfrage bei D) sind größer und stehen mittig im Bereich rechts der Seitenleiste.
 
 ## Hilfe und Token
 

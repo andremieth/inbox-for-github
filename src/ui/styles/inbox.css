@@ -383,11 +383,11 @@
   color: var(--text-muted);
 }
 
-/* Above the overlays (30), so it stays sharp over the pop-up detail and dialogs; under menus (40). */
+/* Centered right of the sidebar; above the overlays (30), under menus (40). */
 .toast {
   position: fixed;
   bottom: 20px;
-  left: 50%;
+  left: calc(var(--sidebar-w, 0px) + (100vw - var(--sidebar-w, 0px)) / 2);
   z-index: 35;
   display: flex;
   gap: 14px;
@@ -926,6 +926,21 @@
 
 .context-menu.fit > .menu-slot > .menu-row .menu-hint {
   white-space: nowrap;
+}
+
+.context-menu.centered {
+  min-width: 340px;
+  padding: 6px;
+}
+
+.context-menu.centered > .menu-slot > .menu-row {
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.context-menu.centered > .menu-slot > .menu-row .menu-hint {
+  font-size: 12.5px;
 }
 
 .menu-hint {

@@ -183,14 +183,6 @@ describe("manual status", () => {
     expect(run(commentedAgain, done(4), undefined, "any-post")).toMatchObject({ status: "open", statusReset: true });
   });
 
-  it("reopens on plain comments only for assigned items in the mixed mode", () => {
-    const mode = "mention-or-assigned-post";
-    expect(run(commentedAgain, done(4), undefined, mode).statusReset).toBe(false);
-    const assigned = item({ reasons: ["assigned"], comments: [comment("bob", "fixed it", 6)] });
-    expect(run(assigned, done(4), undefined, mode)).toMatchObject({ bucket: "assigned", status: "open", statusReset: true });
-    expect(run(mentionedAgain, done(4), undefined, mode).statusReset).toBe(true);
-  });
-
   it("moves snoozed items out of every other bucket", () => {
     const snoozed: StoredStatus = { status: "snoozed", changedAt: "2026-10-04T12:00:00Z" };
     expect(run(item({ reasons: ["assigned"] }), snoozed)).toMatchObject({ bucket: "assigned", status: "snoozed" });
@@ -346,7 +338,7 @@ describe("assignments", () => {
   });
 
   it("stay out of the inbox for posts that do not mention the viewer", () => {
-    expect(run(assigned({ comments: [comment("bob", "progress?", 4)] }), undefined, undefined, "mention-or-assigned-post").bucket).toBe("assigned");
+    expect(run(assigned({ comments: [comment("bob", "progress?", 4)] }), undefined, undefined, "any-post").bucket).toBe("assigned");
   });
 
   it("leave Assigned to me once the viewer is unassigned", () => {
@@ -435,6 +427,27 @@ describe("my part done", () => {
     const closed = assigned({ closed: { state: "closed", at: "2026-10-06T00:00:00Z" } });
     expect(run(closed, done).asks).toEqual(["update"]);
     expect(run(closed, { ...done, changedAt: "2026-10-07T00:00:00Z" }).bucket).toBe("involved");
+  });
+
+  it("keeps an ask from before the hand-off in the inbox until it is filed", () => {
+    const mentioned = assigned({ comments: [comment("bob", "@me can you look?", 3)] });
+    expect(run(mentioned, done)).toMatchObject({ bucket: "inbox", status: "done", asks: ["mention"] });
+    const filed = withRules(mentioned, MENTIONS_ONLY, done, "2026-10-05T00:00:00Z");
+    expect(filed).toMatchObject({ bucket: "assigned", status: "done", asks: [] });
+  });
+
+  it("does not bring back a mention the plan already answered, but keeps a later one", () => {
+    const plan = (i: Item) => classify(i, ME, done, ruleSwitches(), "mention", undefined, true, "2026-10-04T00:00:00Z", MENTIONS_ONLY);
+    const before = assigned({ comments: [comment("bob", "@me can you look?", 3)] });
+    expect(plan(before)).toMatchObject({ bucket: "assigned", asks: [] });
+    const after = assigned({ comments: [comment("bob", "@me can you look?", 4), comment("bob", "@me ping", 5)] });
+    expect(plan(after)).toMatchObject({ bucket: "inbox" });
+    expect(plan(after).asks).toContain("mention");
+  });
+
+  it("keeps an open review request in the inbox after the hand-off", () => {
+    const pr = assigned({ kind: "pr", reasons: ["assigned", "review", "involved"], activities: [{ kind: "review-requested", at: "2026-10-03T00:00:00Z", actor: "alice", reviewer: ME }] });
+    expect(run(pr, done)).toMatchObject({ bucket: "inbox", asks: ["review"] });
   });
 
   it("no longer counts once the viewer is unassigned: posts are no updates, only mentions bring it back", () => {

@@ -24,7 +24,7 @@ import { SnoozeDatePicker } from "./ui/parts/SnoozeDatePicker";
 import { followUpOn, untilText } from "./ui/snooze";
 import { isWaiting } from "./ui/followUp";
 import { canSwitchDemo, isDemo, rememberDemo } from "./demo/flag";
-import { doneAccess, keepsItsPlan, planStatus } from "./ui/statusPlan";
+import { doneAccess, keepsItsPlan, needsAskChoice, planStatus } from "./ui/statusPlan";
 import { StatusIcon } from "./ui/parts/StatusIcon";
 import { Bell, CalendarDays, Code, Ellipsis, ExternalLink, Hash, Link, Mail, MailOpen, RefreshCw, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { CommandPalette } from "./ui/parts/CommandPalette";
@@ -47,7 +47,7 @@ import { useInbox } from "./ui/useInbox";
 import { useOrca } from "./ui/useOrca";
 import { addToOrca, openInOrca, pathText } from "./orca";
 import { useSelection } from "./ui/useSelection";
-import { assignedAt, withAssignees, withSelfAssigned, groupByRepo, groupByType, groupPlate, isActiveBar, isTypeGroup, leaveClears, localDay, moveBar, moveTypeBar, onPlate, plateCount, type PlateGroup, type TableGroup, type TableGrouping } from "./ui/assignments";
+import { assignedAt, withAssignees, withSelfAssigned, groupByRepo, groupByType, groupPlate, isActiveBar, isTypeGroup, leaveClears, localDay, moveBar, moveTypeBar, plateCount, type PlateGroup, type TableGroup, type TableGrouping } from "./ui/assignments";
 import { choiceKey, choiceText, closedPlans, datedAt, datedOf, datedText, dayChoices, dayText, isPinnable, keepsPlan, orphanLinks, planOf, replan, rollOver, setPlan, todayOf, unplan, withEvent, without, type Today } from "./ui/plan";
 import { attributeOptions, combineAttributes, shownKeys, tableKeys } from "./ui/attributes";
 import { useCollapsed } from "./ui/useCollapsed";
@@ -171,7 +171,7 @@ export default function App() {
     if (inbox.settings.tableGrouping === "repo") return [...groupByRepo(working, (c) => assignedAt(c.item, inbox.me ?? "").at, order), ...parked];
     return [...groupByType(working, inbox.settings.statusMap, order, inbox.me ?? "", inbox.settings.typeOrder), ...parked];
   }, [plateNewest, sort, inbox.settings.tableGrouping, inbox.settings.statusMap, inbox.settings.typeOrder, inbox.me]);
-  const tableGrouping: TableGrouping = bucket === "authored" ? inbox.settings.authoredGrouping : inbox.settings.tableGrouping === "time" ? "type" : inbox.settings.tableGrouping;
+  const tableGrouping: TableGrouping = bucket === "authored" ? inbox.settings.authoredGrouping : inbox.settings.tableGrouping;
   const setGrouping = (grouping: TableGrouping) =>
     void inbox.saveSettings(bucket === "authored" ? { ...inbox.settings, authoredGrouping: grouping === "repo" ? "repo" : "status" } : { ...inbox.settings, tableGrouping: grouping });
   /** Drag and drop of a bar in Assigned to me: the status bars by status, the type bars by type. */
@@ -186,8 +186,7 @@ export default function App() {
   const [popup, setPopup] = useState<false | "pointer" | "keys">(false);
   const me = inbox.me ?? "";
   /** How D is offered for an item: as usual, or not at all (see `doneAccess`). */
-  const inPlanned = bucket === "planned";
-  const doneIn = (c: Classified) => doneAccess(c, me);
+  const doneIn = (c: Classified) => doneAccess(c, me, bucket);
   const unreadInboxIds = useMemo(
     () => new Set(inbox.classified.filter((c) => c.bucket === "inbox" && (inbox.unreadMarks.has(c.item.id) || unreadInInbox(c, inbox.seen, me))).map((c) => c.item.id)),
     [inbox.classified, inbox.seen, inbox.unreadMarks, me],
@@ -592,10 +591,11 @@ export default function App() {
     ];
   };
   /**
-   * Deletes the events of the items that have one, as one step each; undo puts a new event at
-   * the same time with the same title and links it, since a deleted event cannot come back.
+   * Ends the events of the items that have one, as one step each. With `remove` the event is
+   * deleted and undo puts a new one at the same time with the same title, since a deleted event
+   * cannot come back; without it only the link goes, the event stays, and undo restores the link.
    */
-  const eventEnds = (cs: Classified[]): Step[] =>
+  const eventEnds = (cs: Classified[], remove = true): Step[] =>
     cs.flatMap((c) => {
       let id = inbox.settings.calendarEvents[c.item.id];
       if (!id || !inbox.settings.calendarId) return [];
@@ -604,10 +604,11 @@ export default function App() {
         {
           run: () => {
             linkEvent(c, null);
-            removed = writing(findEvents([id]).then(async ([event]) => (event && (await removeEvent(event.id)), event))).catch(() => undefined);
+            if (remove) removed = writing(findEvents([id]).then(async ([event]) => (event && (await removeEvent(event.id)), event))).catch(() => undefined);
           },
           undo: () =>
             void removed.then(async (event) => {
+              if (!remove) return linkEvent(c, id);
               const saved = event && (await putEvent(eventDraft(c, event.calendarId, event.title, event.start, event.end)));
               if (!saved) return;
               id = saved.id;
@@ -618,7 +619,7 @@ export default function App() {
     });
   /** P on an item: the plan choices open below its row, like the follow-up ones, or below the detail's Plan button. */
   const plan = (c: Classified, at?: DOMRect) =>
-    pinnable(c) ? setMenu({ entries: planEntries(c), fit: true, ...(at ? { x: at.left, y: at.bottom + 4 } : keyMenuAt(c.item.id)) }) : actions.notify(t("noop.notPlannable", { number: c.item.number }));
+    pinnable(c) ? setMenu({ entries: planEntries(c), fit: true, ...(at ? { x: at.left, y: at.bottom + 4 } : { ...paneCenter(), centered: true }) }) : actions.notify(t("noop.notPlannable", { number: c.item.number }));
 
   /** Stops tracking an item for good, with undo; the settings list it for tracking again. */
   const untrack = (c: Classified) => {
@@ -667,8 +668,8 @@ export default function App() {
   };
   const open = marked.filter((c) => !c.item.closed);
   /** What D or O chooses for one item, as a step with an exact undo; null where it would change nothing, as for a single item. */
-  const planStep = (c: Classified, status: Status) => {
-    const plan = planStatus(c, status, me);
+  const planStep = (c: Classified, status: Status, alsoFile = false) => {
+    const plan = planStatus(c, status, me, bucket);
     const previous = inbox.statuses.get(c.item.id);
     const undo = () => void inbox.restoreStatus(c.item.id, previous);
     switch (plan.do) {
@@ -680,8 +681,13 @@ export default function App() {
       case "blocked":
         return null;
       case "tick-update":
-      case "hand-off":
-        return { run: () => void inbox.setStatus(c.item.id, "done", { handoff: snapshotOf(c.item) }), undo };
+      case "hand-off": {
+        const hand = () => void inbox.setStatus(c.item.id, "done", { handoff: snapshotOf(c.item) });
+        const filesToo = plan.do === "tick-update" ? bucket === "inbox" : alsoFile && c.asks.length > 0;
+        if (!filesToo) return { run: hand, undo };
+        const filing = fileStep(c);
+        return { run: () => (hand(), filing.run()), undo: () => (filing.undo(), undo()) };
+      }
       case "set":
         return c.status === plan.status ? null : { run: () => void inbox.setStatus(c.item.id, plan.status), undo };
       case "none":
@@ -689,21 +695,30 @@ export default function App() {
     }
   };
   /** D or O on the marked items, each as it would be for the item alone (my part done, ticking off an update, back in the work). */
-  const bulkStatus = (status: Status) => {
-    const files = (c: Classified) => planStatus(c, status, me).do === "file";
-    const keeps = (c: Classified) => keepsItsPlan(c, planStatus(c, status, me), me, inPlanned);
-    const changed = marked.filter((c) => (!c.item.closed || files(c)) && planStep(c, status) !== null);
+  const bulkStatus = (status: Status, asks?: "keep" | "file") => {
+    if (!asks && marked.some((c) => needsAskChoice(c, status, me, bucket))) return setMenu({ entries: askChoiceEntries((choice) => bulkStatus(status, choice)), fit: true, ...paneCenter(), centered: true });
+    const alsoFile = (c: Classified) => asks === "file" && needsAskChoice(c, status, me, bucket);
+    const files = (c: Classified) => planStatus(c, status, me, bucket).do === "file";
+    const keeps = (c: Classified) => keepsItsPlan(planStatus(c, status, me, bucket));
+    const changed = marked.filter((c) => (!c.item.closed || files(c)) && planStep(c, status, alsoFile(c)) !== null);
     const [filed, set] = [changed.filter(files), changed.filter((c) => !files(c))];
-    const steps = [...changed.map((c) => planStep(c, status)!), ...(status === "done" ? unplanStep(set.filter((c) => !keeps(c))) : [])];
-    const blocked = open.filter((c) => planStatus(c, status, me).do === "blocked").length;
+    const steps = [...changed.map((c) => planStep(c, status, alsoFile(c))!), ...(status === "done" ? unplanStep(set.filter((c) => !keeps(c))) : [])];
+    const blocked = open.filter((c) => planStatus(c, status, me, bucket).do === "blocked").length;
     if (steps.length === 0) return blocked > 0 ? actions.notify(t("marks.blocked", { count: blocked })) : undefined;
+    const [both, plain] = [set.filter(alsoFile), set.filter((c) => !alsoFile(c))];
     const parts = [
-      ...(set.length > 0 ? [plural("marks.toastOne", "marks.toast", set.length, { status: t(`status.${status}`) })] : []),
+      ...(plain.length > 0 ? [plural("marks.toastOne", "marks.toast", plain.length, { status: t(`status.${status}`) })] : []),
+      ...(both.length > 0 ? [plural("marks.handedFiledOne", "marks.handedFiled", both.length)] : []),
       ...(filed.length > 0 ? [plural("marks.filedOne", "marks.filed", filed.length)] : []),
       ...(blocked > 0 ? [t("marks.blocked", { count: blocked })] : []),
     ];
     bulk(parts.join(" · "), steps);
   };
+  /** The choice D offers where open asks wait in the inbox: Enter keeps them, D files them with it. */
+  const askChoiceEntries = (choose: (asks: "keep" | "file") => void): MenuEntry[] => [
+    { label: t("askChoice.keep"), hint: t("hint.askChoice.keep"), onSelect: () => choose("keep") },
+    { label: t("askChoice.file"), hint: t("hint.askChoice.file"), keys: "D", onSelect: () => choose("file") },
+  ];
   /** The text for one item or for several: `one` takes no count. */
   const plural = (one: MessageKey, many: MessageKey, count: number, params: Record<string, string | number> = {}) => t(count === 1 ? one : many, { count, ...params });
   const hasFollowUp = (c: Classified) => c.status === "snoozed";
@@ -723,13 +738,16 @@ export default function App() {
     const count = waiting.length + unplanned.length;
     const text =
       unplanned.length === 0 ? plural("marks.reminderRemovedOne", "marks.reminderRemoved", count) : waiting.length === 0 ? plural("marks.plansRemovedOne", "marks.plansRemoved", count) : t("marks.whenRemoved", { count });
-    bulk(text, [...waiting.map(followUpStep), ...unplanStep(unplanned)]);
+    bulk(text, [...waiting.map(followUpStep), ...unplanStep(unplanned, true)]);
   };
-  /** Takes the plan or Today pin off the items that have one, as one step for all of them, and deletes their events; none when none has. */
-  const unplanStep = (cs: Classified[]) => {
+  /**
+   * Takes the plan or Today pin off the items that have one, as one step for all of them; none
+   * when none has. Their events are deleted with `remove` (X), else only unlinked and left in the calendar.
+   */
+  const unplanStep = (cs: Classified[], remove = false) => {
     const { focus, planned } = inbox.settings;
     const ids = cs.map((c) => c.item.id).filter((id) => focus.includes(id) || planned.some((p) => p.id === id));
-    return ids.length > 0 ? [todayStep(todayOf(inbox.settings), unplan(todayOf(inbox.settings), ids)), ...eventEnds(cs.filter((c) => ids.includes(c.item.id)))] : [];
+    return ids.length > 0 ? [todayStep(todayOf(inbox.settings), unplan(todayOf(inbox.settings), ids)), ...eventEnds(cs.filter((c) => ids.includes(c.item.id)), remove)] : [];
   };
   /** A time for the marked items: they wait until then. */
   const bulkLater = (until: string) => bulk(plural("marks.laterOne", "marks.later", open.length, { until: untilText(until) }), [...open.map((c) => statusStep(c, "snoozed", until)), ...unplanStep(open)]);
@@ -791,23 +809,40 @@ export default function App() {
    * ticked off with a fresh snapshot; an assignment of the table becomes
    * "my part done", which follows its updates. "Open" on that takes it back into the work.
    */
-  const applyStatus = (c: Classified, status: Status) => {
+  /**
+   * D moved the item into a parked bar of the same table: the selection goes on to the next open
+   * row instead of following it down, as when an item leaves the list. A pop-up opened by click
+   * closes and leaves nothing selected; one opened by key shows the next row.
+   */
+  const moveOn = (id: string) => {
+    if (!table || !viewGroups) return;
+    const open = viewGroups.filter((g) => !folded(g.group) && isActiveBar(g.group as PlateGroup)).flatMap((g) => g.entries.map((e) => e.item.id));
+    const at = open.indexOf(id);
+    if (at < 0) return;
+    if (popup === "pointer") {
+      setPopup(false);
+      return selection.select(null);
+    }
+    if (selection.selected === id) selection.select(open[at + 1] ?? open[at - 1] ?? null);
+  };
+  const applyStatus = (c: Classified, status: Status, asks?: "keep" | "file") => {
     const { id, number } = c.item;
     const previous = inbox.statuses.get(id);
-    const plan = planStatus(c, status, me);
+    const plan = planStatus(c, status, me, bucket);
+    if (!asks && needsAskChoice(c, status, me, bucket)) return setMenu({ entries: askChoiceEntries((choice) => applyStatus(c, status, choice)), fit: true, ...paneCenter(), centered: true });
     if (plan.do === "file") {
       const step = fileStep(c);
       step.run();
       return actions.announce(t("toast.filed", { number }), step.undo, step.run);
     }
     // D ends a plan too, in the same toast and undo, unless the item keeps it (see `keepsItsPlan`).
-    const ends = status === "done" && !keepsItsPlan(c, plan, me, inPlanned) ? unplanStep([c]) : [];
-    const change = (text: string, run: () => void) => {
+    const ends = status === "done" && !keepsItsPlan(plan) ? unplanStep([c]) : [];
+    const change = (text: string, run: () => void, undoMore?: () => void) => {
       const again = () => (run(), ends.forEach((s) => s.run()));
       again();
       actions.announce(
         replacing(text, ends.length > 0 ? endedPlan(c) : null),
-        () => (void inbox.restoreStatus(id, previous), ends.forEach((s) => s.undo()), ends.length > 0 && selection.select(id)),
+        () => (undoMore?.(), void inbox.restoreStatus(id, previous), ends.forEach((s) => s.undo()), ends.length > 0 && selection.select(id)),
         again,
       );
     };
@@ -815,12 +850,19 @@ export default function App() {
     switch (plan.do) {
       case "resume":
         return change(t("toast.resumed", { number }), () => void inbox.clearStatus(id));
-      case "tick-update":
-        return change(t("toast.updateDone", { number }), hand);
-      case "hand-off":
-        return change(t("toast.handedOff", { number }), hand);
+      case "tick-update": {
+        const filing = fileStep(c);
+        const inInbox = bucket === "inbox";
+        return change(t("toast.updateDone", { number }), inInbox ? () => (hand(), filing.run()) : hand, inInbox ? filing.undo : undefined);
+      }
+      case "hand-off": {
+        moveOn(id);
+        if (asks !== "file" || c.asks.length === 0) return change(t("toast.handedOff", { number }), hand);
+        const filing = fileStep(c);
+        return change(t("toast.handedOffFiled", { number }), () => (hand(), filing.run()), filing.undo);
+      }
       case "clear":
-        return change(t("toast.filed", { number }), () => void inbox.clearStatus(id));
+        return change(t(bucket === "snoozed" ? "toast.reminderRemoved" : "toast.filed", { number }), () => void inbox.clearStatus(id));
       case "blocked":
         return;
       case "set":
@@ -828,7 +870,7 @@ export default function App() {
         if (c.item.closed) return actions.notify(t("closed.noStatus", { number }));
         return change(`#${number} → ${t(`status.${plan.status}`)}`, () => void inbox.setStatus(id, plan.status));
       case "none":
-        return;
+        return c.updates ? actions.notify(t("toast.partAlreadyDone", { number })) : undefined;
     }
   };
   /** A follow-up for one item, with or without a date; its plan or Today pin goes with it, since an item has one "when". */
@@ -1022,6 +1064,12 @@ export default function App() {
     setReloading(c.item.id);
     void inbox.reloadItem(c.item.id).finally(() => setReloading(null));
   };
+  /** What D means for the item, for its label and hint: "my part done", filing, or plain Done. */
+  const doneKind = (id: Status, c: Classified): Status | "handOff" | "file" | "clear" => {
+    if (id !== "done") return id;
+    const { do: kind } = planStatus(c, id, me, bucket);
+    return kind === "hand-off" ? "handOff" : kind === "file" ? "file" : kind === "clear" ? (bucket === "snoozed" ? "clear" : "file") : id;
+  };
   /** The context menu of one item: the controls it has elsewhere, under the same shortcuts. */
   const menuEntries = (c: Classified): MenuEntry[] => {
     const { item } = c;
@@ -1029,8 +1077,8 @@ export default function App() {
     const statuses: MenuEntry[] = statusesFor(c)
       .filter((s) => !(s.id === "done" && doneIn(c) === "hidden"))
       .map((s) => ({
-      label: s.id === "done" && onPlate(c, me) && !c.updates ? t("action.handOff") : s.title,
-      hint: statusHint(s.id === "done" && onPlate(c, me) && !c.updates ? "handOff" : s.id),
+      label: doneKind(s.id, c) === "handOff" ? t("action.handOff") : doneKind(s.id, c) === "file" ? t("action.file") : doneKind(s.id, c) === "clear" ? t("reminder.remove") : s.title,
+      hint: statusHint(doneKind(s.id, c)),
       keys: s.key,
       icon: <StatusIcon status={s.id} size={14} />,
       checked: c.status === s.id && !(planned && s.id === "open"),
@@ -1086,15 +1134,13 @@ export default function App() {
 
   const calendarAccess = useCalendarAccess(settings.calendarId);
 
-  // An event whose item lost its pin or plan without a step of its own (closed, dropped overnight) goes too; judged on the latest settings, not this render's.
+  // A link whose item lost its pin or plan without a step of its own (closed, dropped overnight) goes; the event stays. Judged on the latest settings.
   useEffect(() => {
     if (!ready || !settings.calendarId || orphanLinks(settings).length === 0) return;
-    let orphans: [string, string][] = [];
     void changeSettings((s) => {
-      orphans = orphanLinks(s);
+      const orphans = orphanLinks(s);
       return orphans.length === 0 ? s : { ...s, calendarEvents: Object.fromEntries(Object.entries(s.calendarEvents).filter(([id]) => !orphans.some(([gone]) => gone === id))) };
     });
-    for (const [, event] of orphans) void removeEvent(event).catch(() => undefined);
   }, [ready, settings, changeSettings]);
 
   // The pop-up belongs to its item: when the item leaves the list, it closes instead of showing the next one.

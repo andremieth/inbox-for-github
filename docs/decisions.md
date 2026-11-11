@@ -2,8 +2,48 @@
 
 Short records of product decisions whose reason is not obvious from the code. Newest first.
 
+## 2026-11-11
+
+- **The news dot counts only activity the detail shows.** An item never opened counts from its
+  last status change, else from when it was assigned to you or opened by you; an item that is
+  neither shows no dot. On your own items the timeline shows every assignment, so someone taking
+  one on counts as news.
+- **D means one thing per view.** The views have different intents: the inbox is where someone
+  wants something from you, Assigned to me is your own work (a review request there is only a
+  review), Created by me is monitoring whether your items move. D follows the intent. Inbox: D
+  files the item's asks ("filed": the asks count as handled, the item leaves the inbox, its
+  status stays); only "reopened" clears the stored Open; an update is ticked off and files the
+  other asks with it; an item outside the tables (not assigned to you, not opened by you) becomes
+  done. Assigned to me: D is "my part done" whatever asks the item has, and those asks stay in
+  the inbox until filed there, so the item shows in both; a second D shows a hint instead of
+  doing nothing. Created by me: no D at all; its asks are filed in the inbox, and an own item
+  ends on GitHub. Only the inbox files asks, updates and closings by others. Planned: as in the
+  item's home view. Follow-up: D ends the follow-up. Done: nothing. O still takes a finished part back into the work. Supersedes the ask-based D rule of this day ("D
+  on an item of a table first files what asks for you, and only then ends your part") and the D
+  entries of 2026-11-06 and 2026-11-02. D on an assignment with open asks asks first, like F: Enter
+  is "only my part" (the asks stay in the inbox), D also files them, Esc does nothing. The inbox
+  stays the place where asks are handled, but D D clears both in one go; with marks the choice is
+  asked once for all.
+- **D on an item of a table first files what asks for you, and only then ends your part.**
+  Replaced the same day by "D means one thing per view" above.
+- **The calendar is a record of what was done when, so only the user removing a plan deletes its
+  event.** X (single or on marks) and T switching a Today pin off delete it; D, a follow-up, the
+  item closing on GitHub and dropping it from the app end the plan but leave the event, and only
+  the link goes. "My part done" (D) keeps its plan in every view, shared or not. Supersedes the
+  plan-keeping limits of 2026-11-06 (Planned view or lone assignee) and, as far as events go, the
+  2026-10-29 part "deleting it removes the plan … D ends the plan along with the status".
+
 ## 2026-11-10
 
+- **A setting nothing reads is deleted, not kept.** Kept "just in case", dead keys and values
+  piled up in three forms: stored and unread (`hoverActs`), stored and read as another value
+  (`tableGrouping` "time", `reopenOn` "mention-or-assigned-post"), and filtered on load. Now a
+  dropped key leaves the type and the database at the next start, and a dropped value is rewritten
+  to the one it acted as. Keys are deleted by name, not "every unknown key", because builds of
+  different branches share one database and would delete each other's new settings. The mixed
+  reopen mode had still reopened a done assignment on any post, against its record of 2026-10-25;
+  it now is "mention" in every respect. Supersedes "the stored value stays unused" of this day and
+  of 2026-10-30, and restores "Dead settings keys are deleted, with approval" of 2026-10-24.
 - **Tab reaches the main window's buttons only with a setting, off by default.** Native Mac apps
   walk text fields only unless "Keyboard navigation" is on in the system; the web view walks
   buttons regardless, so the app carries the switch itself (`tabToButtons`). With it on, a button

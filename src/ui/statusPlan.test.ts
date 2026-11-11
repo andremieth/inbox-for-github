@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { classify, type Classified } from "../classify";
 import type { Item } from "../model";
 import { ruleSwitches } from "../rules";
-import { doneAccess, keepsItsPlan, planStatus } from "./statusPlan";
+import type { View } from "./labels";
+import { doneAccess, keepsItsPlan, needsAskChoice, planStatus } from "./statusPlan";
 
 const ME = "me";
 
@@ -18,76 +19,119 @@ function entry(overrides: Partial<Item>, asks?: Classified["asks"]): Classified 
 
 describe("planStatus", () => {
   const shared = { assignees: [ME, "bob"] };
+  const own = { author: ME, assignees: [ME] };
+  const others = { assignees: [], reasons: ["mentioned" as const] };
+  const plan = (c: Classified, view: View) => planStatus(c, "done", ME, view);
 
-  it("hands off an assignment shared with others instead of marking it done", () => {
-    expect(planStatus(entry(shared), "done", ME)).toEqual({ do: "hand-off" });
-    expect(planStatus(entry(shared, ["review"]), "done", ME)).toEqual({ do: "hand-off" });
+  describe("in the inbox", () => {
+    it("files what asks on an assignment, an own item or a handed-off one", () => {
+      expect(plan(entry({}, ["mention"]), "inbox")).toEqual({ do: "file" });
+      expect(plan(entry(shared, ["review", "feedback"]), "inbox")).toEqual({ do: "file" });
+      expect(plan(entry(own, ["reply"]), "inbox")).toEqual({ do: "file" });
+      expect(plan({ ...entry(shared, ["mention"]), updates: [] }, "inbox")).toEqual({ do: "file" });
+    });
+
+    it("clears a stored Open when reopened is the only ask", () => {
+      expect(plan(entry({}, ["reopened"]), "inbox")).toEqual({ do: "clear" });
+    });
+
+    it("sets an item outside the tables done, also with a mention", () => {
+      expect(plan(entry(others, ["mention"]), "inbox")).toEqual({ do: "set", status: "done" });
+    });
+
+    it("ticks off an update, which files the other asks too", () => {
+      expect(plan(entry({}, ["update", "mention"]), "inbox")).toEqual({ do: "tick-update" });
+    });
+
+    it("files an own item someone else closed", () => {
+      const closed = entry({ author: ME, assignees: [], closed: { state: "closed", at: "2026-10-02T00:00:00Z" } }, ["closed"]);
+      expect(plan(closed, "inbox")).toEqual({ do: "file" });
+    });
   });
 
-  it("marks an item done that is not on the viewer's plate", () => {
-    expect(planStatus(entry({ assignees: [], reasons: ["mentioned"] }), "done", ME)).toEqual({ do: "set", status: "done" });
+  describe("in Assigned to me", () => {
+    it("ends the viewer's part, alone or shared, whatever asks there are", () => {
+      expect(plan(entry({}), "assigned")).toEqual({ do: "hand-off" });
+      expect(plan(entry(shared), "assigned")).toEqual({ do: "hand-off" });
+      expect(plan(entry({}, ["mention"]), "assigned")).toEqual({ do: "hand-off" });
+    });
+
+    it("does nothing on a finished part, and O resumes it", () => {
+      const handedOff = { ...entry(shared), updates: [] };
+      expect(plan(handedOff, "assigned")).toEqual({ do: "none" });
+      expect(planStatus(handedOff, "open", ME, "assigned")).toEqual({ do: "resume" });
+    });
   });
 
-  it("ticks off an update before anything else, also on a locked item", () => {
-    expect(planStatus(entry({}, ["update"]), "done", ME)).toEqual({ do: "tick-update" });
+  describe("in Created by me", () => {
+    it("leaves asks to the inbox", () => {
+      expect(plan(entry(own, ["mention"]), "authored")).toEqual({ do: "blocked", why: "own" });
+      expect(plan(entry({ ...own, kind: "pr", assignees: [] }, ["review"]), "authored")).toEqual({ do: "blocked", why: "own" });
+      expect(plan(entry(own, ["reopened"]), "authored")).toEqual({ do: "blocked", why: "own" });
+    });
+
+    it("changes nothing on an own item without asks", () => {
+      expect(plan(entry({ kind: "pr", author: ME, assignees: [] }), "authored")).toEqual({ do: "blocked", why: "own" });
+      expect(plan(entry({ author: ME, assignees: [ME, "bob"] }), "authored")).toEqual({ do: "blocked", why: "own" });
+    });
   });
 
-  it("does nothing for done on an item whose part is already done, and resumes it on open", () => {
-    const handedOff = { ...entry(shared), updates: [] };
-    expect(planStatus(handedOff, "done", ME)).toEqual({ do: "none" });
-    expect(planStatus(handedOff, "open", ME)).toEqual({ do: "resume" });
+  describe("in Planned", () => {
+    it("acts as the home view: assignment, own item, anything else", () => {
+      expect(plan(entry({}), "planned")).toEqual({ do: "hand-off" });
+      expect(plan(entry(own, ["mention"]), "planned")).toEqual({ do: "hand-off" });
+      expect(plan(entry(own), "planned")).toEqual({ do: "hand-off" });
+      expect(plan(entry({ ...own, assignees: [], reasons: ["involved"] }), "planned")).toEqual({ do: "blocked", why: "own" });
+      expect(plan(entry({ ...own, kind: "pr" }), "planned")).toEqual({ do: "blocked", why: "own" });
+      expect(plan(entry(others), "planned")).toEqual({ do: "set", status: "done" });
+    });
   });
 
-  it("changes no status of an own item, also with another person assigned", () => {
-    expect(planStatus(entry({ kind: "pr", author: ME, assignees: [] }), "done", ME)).toEqual({ do: "blocked", why: "own" });
-    expect(planStatus(entry({ author: ME, assignees: [ME, "bob"] }), "done", ME)).toEqual({ do: "blocked", why: "own" });
+  describe("in Follow-up", () => {
+    it("ends the follow-up", () => {
+      expect(plan(entry({}), "snoozed")).toEqual({ do: "clear" });
+      expect(plan(entry(others, ["mention"]), "snoozed")).toEqual({ do: "clear" });
+    });
   });
 
-  it("hands off an assignment the viewer alone is on, as a shared one", () => {
-    expect(planStatus(entry({}), "done", ME)).toEqual({ do: "hand-off" });
-    expect(planStatus(entry({}, ["mention"]), "done", ME)).toEqual({ do: "hand-off" });
-  });
-
-  it("files what asks on a locked item instead", () => {
-    expect(planStatus(entry({ author: ME, assignees: [ME] }, ["mention"]), "done", ME)).toEqual({ do: "file" });
-    expect(planStatus(entry({ author: ME, assignees: [ME] }, ["review"]), "done", ME)).toEqual({ do: "file" });
-    expect(planStatus(entry({ author: ME, kind: "pr", assignees: [], reasons: ["involved"] }, ["mention"]), "done", ME)).toEqual({ do: "file" });
-    expect(planStatus(entry({ author: ME, assignees: [ME] }, ["reopened"]), "done", ME)).toEqual({ do: "clear" });
-  });
-
-  it("files feedback and thread answers on any item of the tables", () => {
-    expect(planStatus(entry(shared, ["feedback"]), "done", ME)).toEqual({ do: "file" });
-    expect(planStatus(entry(shared, ["mention", "reply"]), "done", ME)).toEqual({ do: "file" });
-  });
-
-  it("files an own item someone else closed", () => {
-    expect(planStatus(entry({ author: ME, assignees: [], closed: { state: "closed", at: "2026-10-02T00:00:00Z" } }, ["closed"]), "done", ME)).toEqual({ do: "file" });
+  describe("in Done", () => {
+    it("does nothing", () => {
+      expect(plan(entry(others), "done")).toEqual({ do: "none" });
+    });
   });
 
   it("still lets the viewer put any item aside", () => {
-    expect(planStatus(entry({ author: ME, assignees: [ME] }), "snoozed", ME)).toEqual({ do: "set", status: "snoozed" });
-    expect(planStatus(entry({}), "snoozed", ME)).toEqual({ do: "set", status: "snoozed" });
+    expect(planStatus(entry(own), "snoozed", ME, "inbox")).toEqual({ do: "set", status: "snoozed" });
+    expect(planStatus(entry({}), "snoozed", ME, "assigned")).toEqual({ do: "set", status: "snoozed" });
   });
 });
 
 describe("doneAccess", () => {
-  it("offers D while it does something and hides it on own items", () => {
-    expect(doneAccess(entry({ assignees: [ME, "bob"] }), ME)).toBe("on");
-    expect(doneAccess(entry({ author: ME, kind: "pr", assignees: [], reasons: ["involved"] }), ME)).toBe("hidden");
-    expect(doneAccess(entry({}), ME)).toBe("on");
-    expect(doneAccess(entry({ author: ME, assignees: [ME] }, ["mention"]), ME)).toBe("on");
+  it("offers D while it does something and hides it in Created by me", () => {
+    expect(doneAccess(entry({ assignees: [ME, "bob"] }), ME, "assigned")).toBe("on");
+    expect(doneAccess(entry({ author: ME, kind: "pr", assignees: [], reasons: ["involved"] }), ME, "authored")).toBe("hidden");
+    expect(doneAccess(entry({ author: ME, assignees: [ME] }, ["mention"]), ME, "authored")).toBe("hidden");
+    expect(doneAccess(entry({ author: ME, assignees: [ME] }, ["mention"]), ME, "inbox")).toBe("on");
   });
 });
 
 describe("keepsItsPlan", () => {
-  const lone = entry({});
-  const shared = entry({ assignees: [ME, "bob"] });
+  it("keeps the plan when D hands off or ticks off an update, shared or not", () => {
+    expect(keepsItsPlan({ do: "hand-off" })).toBe(true);
+    expect(keepsItsPlan({ do: "tick-update" })).toBe(true);
+    expect(keepsItsPlan({ do: "set", status: "done" })).toBe(false);
+  });
+});
 
-  it("keeps the plan when D sets my part done on a lone assignment in any view, or on any in Planned", () => {
-    expect(keepsItsPlan(lone, { do: "hand-off" }, ME, false)).toBe(true);
-    expect(keepsItsPlan(lone, { do: "tick-update" }, ME, false)).toBe(true);
-    expect(keepsItsPlan(shared, { do: "hand-off" }, ME, true)).toBe(true);
-    expect(keepsItsPlan(shared, { do: "hand-off" }, ME, false)).toBe(false);
-    expect(keepsItsPlan(lone, { do: "set", status: "done" }, ME, true)).toBe(false);
+describe("needsAskChoice", () => {
+  const ask = (c: Classified, view: View) => needsAskChoice(c, "done", ME, view);
+  it("asks where D hands off and asks are open", () => {
+    expect(ask(entry({}, ["mention"]), "assigned")).toBe(true);
+    expect(ask(entry({}, ["mention"]), "planned")).toBe(true);
+  });
+  it("acts at once without asks, outside the hand-off or for other statuses", () => {
+    expect(ask(entry({}), "assigned")).toBe(false);
+    expect(ask(entry({}, ["mention"]), "inbox")).toBe(false);
+    expect(needsAskChoice(entry({}, ["mention"]), "open", ME, "assigned")).toBe(false);
   });
 });

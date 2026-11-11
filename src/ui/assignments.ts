@@ -1,6 +1,7 @@
 import type { Classified } from "../classify";
 import type { Item, Status, StoredStatus } from "../model";
 import { isBot, latest, posts, sameLogin } from "../timeline";
+import { isShownActivity } from "./activities";
 import { workStatus, type StatusMap } from "../workStatus";
 import type { AuthoredGroup } from "./authored";
 import type { SnoozeGroup } from "./timeGroups";
@@ -120,6 +121,7 @@ export const MOVES_UP_DEFAULT: MovesUp = { commits: false, events: true, bots: f
 export function lastOthersActivity(item: Item, me: string, counted: MovesUp = MOVES_UP_DEFAULT): string | null {
   const byOther = (login: string) => !sameLogin(login, me) && (counted.bots || !isBot(login));
   const counts = (a: Item["activities"][number]) => {
+    if (!isShownActivity(a, me, sameLogin(item.author, me))) return false;
     if (a.kind === "commit") return counted.commits;
     return byOther(a.actor) && (a.kind === "reviewed" || counted.events);
   };
@@ -288,9 +290,17 @@ export function isNewAssignment(entry: Pick<Classified, "item" | "statusAt">, se
   return !sameLogin(last.actor, me) && (!since || since < last.at);
 }
 
-/** Someone else was active after the viewer last opened the item. */
+/**
+ * Someone else was active after the viewer last opened the item. An item never opened counts from
+ * its last status change, else from when it was assigned to the viewer or opened by them, so news
+ * on it shows as well; an item that is neither has no such start, so it shows no news.
+ *
+ * @example
+ *   hasNewActivity(entry, new Map(), "octocat"); // true when someone commented after the assignment
+ */
 export function hasNewActivity(entry: Pick<Classified, "item" | "statusAt">, seen: Map<string, string>, me: string): boolean {
-  const since = seen.get(entry.item.id) ?? entry.statusAt;
+  const mine = entry.item.reasons.includes("assigned") || sameLogin(entry.item.author, me);
+  const since = seen.get(entry.item.id) ?? entry.statusAt ?? (mine ? assignedAt(entry.item, me).at : null);
   const last = lastOthersActivity(entry.item, me);
   return !!last && !!since && last > since;
 }
