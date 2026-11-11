@@ -437,7 +437,7 @@ export default function App() {
 
   const pinnable = isPinnable;
   const toggleFocus = (c: Classified, extra: Step[] = []) => {
-    const focus = inbox.settings.focus.filter((id) => inbox.classified.some((e) => e.item.id === id && pinnable(e)));
+    const { focus } = inbox.settings;
     const on = focus.includes(c.item.id);
     const previous = todayOf(inbox.settings);
     const next: Today = {
@@ -833,7 +833,7 @@ export default function App() {
     if (plan.do === "file") {
       const step = fileStep(c);
       step.run();
-      return actions.announce(t("toast.filed", { number }), step.undo, step.run);
+      return actions.announce(t("toast.filed", { number }), () => (step.undo(), selection.select(id)), step.run);
     }
     // D ends a plan too, in the same toast and undo, unless the item keeps it (see `keepsItsPlan`).
     const ends = status === "done" && !keepsItsPlan(plan) ? unplanStep([c]) : [];
@@ -842,7 +842,7 @@ export default function App() {
       again();
       actions.announce(
         replacing(text, ends.length > 0 ? endedPlan(c) : null),
-        () => (undoMore?.(), void inbox.restoreStatus(id, previous), ends.forEach((s) => s.undo()), ends.length > 0 && selection.select(id)),
+        () => (undoMore?.(), void inbox.restoreStatus(id, previous), ends.forEach((s) => s.undo()), selection.select(id)),
         again,
       );
     };
@@ -1226,7 +1226,7 @@ export default function App() {
       "?": () => setDialog("help"),
       ...Object.fromEntries(views.map((b, i) => [String(i + 1), () => setBucket(b.id)])),
     },
-    dialog === null && !welcome,
+    dialog === null && !welcome && !calendarFor && !pickingDate,
   );
 
   /** Shows an item in its view with every filter cleared, so it cannot be hidden by one. */
