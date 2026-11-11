@@ -24,7 +24,7 @@ import { SnoozeDatePicker } from "./ui/parts/SnoozeDatePicker";
 import { followUpOn, untilText } from "./ui/snooze";
 import { isWaiting } from "./ui/followUp";
 import { canSwitchDemo, isDemo, rememberDemo } from "./demo/flag";
-import { doneAccess, keepsItsPlan, needsAskChoice, planStatus } from "./ui/statusPlan";
+import { actsOnClosed, doneAccess, keepsItsPlan, needsAskChoice, planStatus } from "./ui/statusPlan";
 import { StatusIcon } from "./ui/parts/StatusIcon";
 import { Bell, CalendarDays, Code, Ellipsis, ExternalLink, Hash, Link, Mail, MailOpen, RefreshCw, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
 import { CommandPalette } from "./ui/parts/CommandPalette";
@@ -389,7 +389,7 @@ export default function App() {
   const findable = useMemo(() => inbox.classified.filter((c) => viewOf(c, me) !== null), [inbox.classified, me]);
   // The badge says there is something to do again, or still: unread inbox items and unread assignments, marks by hand included.
   const badgeIds = useMemo(() => new Set([...unreadInboxIds, ...unreadPlateIds]), [unreadInboxIds, unreadPlateIds]);
-  const repos = useMemo(() => repoList(inbox.classified, me), [inbox.classified, me]);
+  const repos = useMemo(() => repoList(inbox.classified, me, inbox.settings.statusMap), [inbox.classified, me, inbox.settings.statusMap]);
 
   const boards = useMemo(() => {
     const byId = new Map<string, { id: string; title: string; values: Set<string> }>();
@@ -536,7 +536,15 @@ export default function App() {
     if (day === localDay() ? when?.kind !== "today" : when?.kind !== "planned" || when.day !== day) {
       if (day === localDay()) toggleFocus(c, extra);
       else planFor(c, day, dayText(day), extra);
-    } else extra.forEach((s) => s.run());
+    } else {
+      extra.forEach((s) => s.run());
+      if (extra.length === 0) return;
+      actions.announce(
+        day === localDay() ? t("focus.added", { number: c.item.number }) : t("plan.added", { number: c.item.number, day: dayText(day) }),
+        () => extra.forEach((s) => s.undo()),
+        () => extra.forEach((s) => s.run()),
+      );
+    }
   };
   /** What a new event for the item says in its notes: its reference and link. */
   const eventDraft = (c: Classified, calendarId: string, title: string, start: number, end: number) => ({
@@ -635,11 +643,15 @@ export default function App() {
   /** Stops tracking an item for good, with undo; the settings list it for tracking again. */
   const untrack = (c: Classified) => {
     const entry = { id: c.item.id, repo: c.item.repo, number: c.item.number, title: c.item.title, url: c.item.url, at: new Date().toISOString() };
-    void inbox.updateSettings((s) => ({ ...s, untracked: [...s.untracked, entry] }));
+    const steps = [
+      { run: () => void inbox.updateSettings((s) => ({ ...s, untracked: s.untracked.some((u) => u.id === entry.id) ? s.untracked : [...s.untracked, entry] })), undo: () => void inbox.updateSettings((s) => ({ ...s, untracked: s.untracked.filter((u) => u.id !== entry.id) })) },
+      ...unplanStep([c]),
+    ];
+    for (const step of steps) step.run();
     actions.announce(
       t("untrack.done", { number: c.item.number }),
-      () => void inbox.updateSettings((s) => ({ ...s, untracked: s.untracked.filter((u) => u.id !== entry.id) })),
-      () => void inbox.updateSettings((s) => ({ ...s, untracked: s.untracked.some((u) => u.id === entry.id) ? s.untracked : [...s.untracked, entry] })),
+      () => steps.forEach((step) => step.undo()),
+      () => steps.forEach((step) => step.run()),
     );
   };
 
@@ -711,16 +723,23 @@ export default function App() {
     const alsoFile = (c: Classified) => asks === "file" && needsAskChoice(c, status, me, bucket);
     const files = (c: Classified) => planStatus(c, status, me, bucket).do === "file";
     const keeps = (c: Classified) => keepsItsPlan(planStatus(c, status, me, bucket));
-    const changed = marked.filter((c) => (!c.item.closed || files(c)) && planStep(c, status, alsoFile(c)) !== null);
+    const changed = marked.filter((c) => (!c.item.closed || actsOnClosed(planStatus(c, status, me, bucket))) && planStep(c, status, alsoFile(c)) !== null);
     const [filed, set] = [changed.filter(files), changed.filter((c) => !files(c))];
     const steps = [...changed.map((c) => planStep(c, status, alsoFile(c))!), ...(status === "done" ? unplanStep(set.filter((c) => !keeps(c))) : [])];
     const blocked = open.filter((c) => planStatus(c, status, me, bucket).do === "blocked").length;
     if (steps.length === 0) return blocked > 0 ? actions.notify(t("marks.blocked", { count: blocked })) : undefined;
-    const [both, plain] = [set.filter(alsoFile), set.filter((c) => !alsoFile(c))];
+    const [both, rest] = [set.filter(alsoFile), set.filter((c) => !alsoFile(c))];
+    const doing = (c: Classified) => planStatus(c, status, me, bucket).do;
+    const [handed, ticked, cleared, plain] = [rest.filter((c) => doing(c) === "hand-off"), rest.filter((c) => doing(c) === "tick-update"), rest.filter((c) => doing(c) === "clear"), rest.filter((c) => !["hand-off", "tick-update", "clear"].includes(doing(c)))];
+    const ended = status === "done" ? set.filter((c) => !keeps(c) && dated(c) !== null).length : 0;
     const parts = [
       ...(plain.length > 0 ? [plural("marks.toastOne", "marks.toast", plain.length, { status: t(`status.${status}`) })] : []),
+      ...(handed.length > 0 ? [plural("marks.handedOffOne", "marks.handedOff", handed.length)] : []),
+      ...(ticked.length > 0 ? [plural("marks.updateDoneOne", "marks.updateDone", ticked.length)] : []),
+      ...(cleared.length > 0 ? [bucket === "snoozed" ? plural("marks.reminderRemovedOne", "marks.reminderRemoved", cleared.length) : plural("marks.filedOne", "marks.filed", cleared.length)] : []),
       ...(both.length > 0 ? [plural("marks.handedFiledOne", "marks.handedFiled", both.length)] : []),
       ...(filed.length > 0 ? [plural("marks.filedOne", "marks.filed", filed.length)] : []),
+      ...(ended > 0 ? [plural("marks.plansRemovedOne", "marks.plansRemoved", ended)] : []),
       ...(blocked > 0 ? [t("marks.blocked", { count: blocked })] : []),
     ];
     bulk(parts.join(" · "), steps);
@@ -939,7 +958,7 @@ export default function App() {
     else
       actions.announce(
         text,
-        () => ids.forEach((id) => classifiedById(id) && leave(classifiedById(id)!, true)),
+        () => ids.forEach((id) => classifiedById(id) && leave(classifiedById(id)!, true, true)),
         () => ids.forEach((id) => classifiedById(id) && assignAll([classifiedById(id)!], true)),
       );
     for (const c of due) {
@@ -966,13 +985,15 @@ export default function App() {
   /**
    * ⌃U: the viewer's part is done and they leave the assignees, here at once and then on GitHub,
    * queued. The item then sorts like any other they are not assigned to: nowhere, until a mention.
-   * A failure puts them back as assignee, with the status they had, and says so.
+   * A failure puts them back as assignee, with the status they had, and says so. With `keepStatus`
+   * (undoing an assignment, which wrote none) the stored status is left alone.
    */
-  const leave = (c: Classified, quiet = false) => {
+  const leave = (c: Classified, quiet = false, keepStatus = false) => {
     if (!leavable(c)) return quiet ? undefined : actions.notify(t("unassign.nothing"));
     const { id, number, assignees, reasons, activities } = c.item;
     const previous = inbox.statuses.get(id);
-    if (leaveClears(previous)) void inbox.clearStatus(id);
+    const cleared = !keepStatus && leaveClears(previous);
+    if (cleared) void inbox.clearStatus(id);
     const at = new Date().toISOString();
     inbox.updateItem(id, (item) => ({
       ...item,
@@ -986,7 +1007,7 @@ export default function App() {
       actions.announce(
         text,
         () => {
-          if (previous) void inbox.restoreStatus(id, previous);
+          if (cleared) void inbox.restoreStatus(id, previous);
           const now = classifiedById(id);
           if (now) assignAll([now], true);
         },
@@ -1002,7 +1023,7 @@ export default function App() {
           (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
           (e) => {
             inbox.updateItem(id, (item) => ({ ...item, assignees, reasons, activities }));
-            if (previous) void inbox.restoreStatus(id, previous);
+            if (cleared) void inbox.restoreStatus(id, previous);
             void inbox.logWriteFailure(id, "unassign", String(e));
             actions.notify(t("unassign.failed", { number, error: String(e) }));
           },
@@ -1019,7 +1040,7 @@ export default function App() {
     actions.announce(
       t("unassign.doneMany", { count: due.length }),
       () => {
-        ids.forEach((id) => before.get(id) && void inbox.restoreStatus(id, before.get(id)));
+        ids.forEach((id) => leaveClears(before.get(id)) && void inbox.restoreStatus(id, before.get(id)));
         assignAll(ids.flatMap((id) => classifiedById(id) ?? []), true);
       },
       () => ids.forEach((id) => classifiedById(id) && leave(classifiedById(id)!, true)),
@@ -1085,7 +1106,7 @@ export default function App() {
   const menuEntries = (c: Classified): MenuEntry[] => {
     const { item } = c;
     const planned = dated(c) !== null;
-    const statuses: MenuEntry[] = statusesFor(c)
+    const statuses: MenuEntry[] = statusesFor(c, doneIn(c) === "closed")
       .filter((s) => !(s.id === "done" && doneIn(c) === "hidden"))
       .map((s) => ({
       label: doneKind(s.id, c) === "handOff" ? t("action.handOff") : doneKind(s.id, c) === "file" ? t("action.file") : doneKind(s.id, c) === "clear" ? t("reminder.remove") : s.title,
@@ -1526,7 +1547,8 @@ export default function App() {
           current={current}
           onClose={() => setDialog(null)}
           onStatus={(s) => current && applyStatus(current, s)}
-          doneOff={!!current && doneIn(current) !== "on"}
+          doneOff={!!current && doneIn(current) === "hidden"}
+          doneOnly={!!current && doneIn(current) === "closed"}
             onUntrack={() => current && untrack(current)}
             unread={!!current && isUnread(current)}
             onToggleRead={() => current && toggleRead([current])}
