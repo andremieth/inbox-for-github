@@ -134,6 +134,7 @@ export default function App() {
     setKind("all");
     setSearch(null);
     setMarks(new Set());
+    closePopup();
   };
   // Each table keeps its own sprint filter while the viewer switches views.
   const [sprints, setSprints] = useState<Record<"assigned" | "authored" | "planned" | "snoozed", SprintFilter>>({ assigned: "all", authored: "all", planned: "all", snoozed: "all" });
@@ -215,13 +216,13 @@ export default function App() {
       ),
     [inbox.classified, inbox.seen, inbox.unreadMarks, inbox.settings.statusMap, me],
   );
-  /** The items a view's count stands for, whatever filters narrow its list. */
+  /** The items a view's count stands for, within the repository filter, whatever else narrows its list. */
   const itemsOfView = (view: View): Classified[] => {
-    if (view === "assigned") return groupPlate(inbox.classified, inbox.settings.statusMap, [], me).filter((g) => isActiveBar(g.group)).flatMap((g) => g.entries);
-    if (view === "authored") return groupAuthored(inbox.classified, me).filter((g) => g.group !== "later").flatMap((g) => g.entries);
-    if (view === "planned") return inbox.classified.filter((c) => dated(c) !== null);
-    if (view === "snoozed") return inbox.classified.filter(isWaiting);
-    return inbox.classified.filter((c) => c.bucket === view);
+    if (view === "assigned") return groupPlate(inRepos, inbox.settings.statusMap, [], me).filter((g) => isActiveBar(g.group)).flatMap((g) => g.entries);
+    if (view === "authored") return groupAuthored(inRepos, me).filter((g) => g.group !== "later").flatMap((g) => g.entries);
+    if (view === "planned") return inRepos.filter((c) => dated(c) !== null);
+    if (view === "snoozed") return inRepos.filter(isWaiting);
+    return inRepos.filter((c) => c.bucket === view);
   };
   const unreadCounts = useMemo(() => ({ inbox: unreadInboxIds.size, assigned: unreadPlateIds.size }), [unreadInboxIds, unreadPlateIds]);
   const movesUp = inbox.settings.movesUp;
@@ -299,8 +300,18 @@ export default function App() {
     [viewGroups, folded, entries],
   );
   const selection = useSelection(ids, isBar);
+  /** Closing the pop-up lets go of a row reached by a click; one reached with the keyboard stays selected, as the cursor to move on from. */
+  const closePopup = () => {
+    setPopup(false);
+    if (popup === "pointer") selection.select(null);
+  };
+  /** An undo reselects its item; an open pop-up belongs to the item it shows, so it closes first. */
+  const takeBack = (id: string) => {
+    closePopup();
+    selection.select(id);
+  };
   useEffect(() => {
-    reselect.current = selection.select;
+    reselect.current = takeBack;
   });
   // A palette jump lands once the target view has rendered; a folded group around it opens first.
   const [reveal, setReveal] = useState<string | null>(null);
@@ -833,7 +844,7 @@ export default function App() {
     if (plan.do === "file") {
       const step = fileStep(c);
       step.run();
-      return actions.announce(t("toast.filed", { number }), () => (step.undo(), selection.select(id)), step.run);
+      return actions.announce(t("toast.filed", { number }), () => (step.undo(), takeBack(id)), step.run);
     }
     // D ends a plan too, in the same toast and undo, unless the item keeps it (see `keepsItsPlan`).
     const ends = status === "done" && !keepsItsPlan(plan) ? unplanStep([c]) : [];
@@ -842,7 +853,7 @@ export default function App() {
       again();
       actions.announce(
         replacing(text, ends.length > 0 ? endedPlan(c) : null),
-        () => (undoMore?.(), void inbox.restoreStatus(id, previous), ends.forEach((s) => s.undo()), selection.select(id)),
+        () => (undoMore?.(), void inbox.restoreStatus(id, previous), ends.forEach((s) => s.undo()), takeBack(id)),
         again,
       );
     };
@@ -1156,11 +1167,6 @@ export default function App() {
     setPopup("keys");
   };
   const onMarks = marked.length > 0 && !showPopup;
-  /** Closing the pop-up lets go of a row reached by a click; one reached with the keyboard stays selected, as the cursor to move on from. */
-  const closePopup = () => {
-    setPopup(false);
-    if (popup === "pointer") selection.select(null);
-  };
   useEffect(() => setLogContext({ view: bucket, popup: showPopup }), [bucket, showPopup]);
   // In a table a selected row shows nothing of the item; only its pop-up counts as opened.
   const openedId = !table || showPopup ? current?.item.id : undefined;
@@ -1563,7 +1569,7 @@ export default function App() {
         <SettingsDialog
           settings={inbox.settings}
           welcome={welcome}
-          onSave={(s) => void inbox.updateSettings((current) => ({ ...s, notifyCollected: current.notifyCollected, notifyLastSummary: current.notifyLastSummary }))}
+          onSave={(s) => void inbox.updateSettings((current) => ({ ...current, ...s, notifyCollected: current.notifyCollected, notifyLastSummary: current.notifyLastSummary }))}
           onClose={() => setDialog(null)}
           boards={boards}
           memberOrgs={inbox.memberOrgs}
