@@ -1,5 +1,6 @@
 import { newestAsk, type Classified } from "../classify";
 import type { Reopen } from "../model";
+import { DONE_DAYS } from "./doneBar";
 import { t } from "./i18n";
 import { ago, agoInSentence, updateSummary, type View } from "./labels";
 import { sameLogin } from "../timeline";
@@ -147,7 +148,7 @@ export function bucketHelp(view: View, reopenOn: Reopen): { lead: string; points
     case "inbox":
       return {
         lead: t("help.inbox.lead"),
-        points: [t("help.inbox.mention"), t("help.inbox.review"), t("help.inbox.commits"), t("help.inbox.feedback"), t("help.inbox.reply"), t("help.inbox.closed"), t("help.inbox.update"), t("help.inbox.due"), t("help.inbox.reopened"), t("help.inbox.post"), t("help.inbox.opened")],
+        points: [t("help.inbox.mention"), t("help.inbox.review"), t("help.inbox.commits"), t("help.inbox.feedback"), t("help.inbox.reply"), t("help.inbox.closed"), t("help.inbox.update"), t("help.inbox.due"), t("help.inbox.reopened"), t("help.inbox.post"), t("help.inbox.opened"), t("help.inbox.doneBar", { days: DONE_DAYS })],
       };
     case "assigned":
       return { lead: t("help.assigned.lead"), points: [t("help.assigned.leaves"), t("help.assigned.back"), t("help.assigned.dated")] };
@@ -160,10 +161,5 @@ export function bucketHelp(view: View, reopenOn: Reopen): { lead: string; points
       };
     case "snoozed":
       return { lead: t("help.snoozed.lead"), points: [t("help.snoozed.back", { rule: t(`reopen.${reopenOn}`) }), t("help.snoozed.tables")] };
-    case "done":
-      return {
-        lead: t("help.done.lead"),
-        points: [t("help.done.mention"), t("help.done.review"), t("help.done.closed"), t("help.done.manual", { rule: t(`reopen.${reopenOn}`) }), t("explain.undoHint")],
-      };
   }
 }

@@ -72,8 +72,4 @@ Independent of each other:
 ## Where the code differs
 
 Each line is an `it.fails` case in `src/behaviour.test.ts`, unless it says the case comes with
-its issue.
-
-- [#109](https://github.com/julian-wendt/inbox-for-github/issues/109) the Done bar: Done is still
-  a view, without asks filed on assignments and with no limit of days; an item D filed that has
-  no mention or review request shows in no Done view (the case comes with #109).
+its issue. None at the moment: every case is a plain `it`.

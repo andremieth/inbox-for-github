@@ -12,6 +12,7 @@ import { viewOf, type View } from "../../ui/labels";
 import { movedKeys, movedLists } from "../../transfer";
 import { followUpExtra, followUpOf, followUpUnchanged, isWaiting } from "../../ui/followUp";
 import { lockedDone, planStatus } from "../../ui/statusPlan";
+import { inDoneBar } from "../../ui/doneBar";
 import { addComment, assignSelf, setOpen, unassignSelf, type CloseReason } from "../comment";
 import { addRequested, canDelta, DELTA_OVERLAP_MS, findTransfers, mergeDelta, mergeReloaded, transferCandidates, unseenReviews, withdrawReviews, withinClosedWindow } from "../delta";
 import { fetchItem, fetchItems, fetchItemsById, fetchReviewIds } from "../fetch";
@@ -187,7 +188,7 @@ export class InboxSession {
       if (handledBefore) this.handledUntil.set(ref.id, handledBefore);
       else this.handledUntil.delete(ref.id);
     };
-    const shown = view ?? viewOf(c, this.me) ?? "inbox";
+    const shown = view ?? viewOf(c, this.me) ?? (this.inBar(c) ? "done" : "inbox");
     const plan = planStatus(c, status, this.me, shown);
     switch (plan.do) {
       case "resume":
@@ -314,14 +315,19 @@ export class InboxSession {
     return found;
   }
 
-  /** The view the item stands in, or null where it shows nowhere. */
-  viewOf(ref: Ref): View | null {
+  /** The view the item stands in, "done" where it shows only in the inbox's Done bar, or null where it shows nowhere. */
+  viewOf(ref: Ref): View | "done" | null {
     const c = this.classified().find((e) => e.item.id === ref.id);
-    return c ? viewOf(c, this.me) : null;
+    return c ? (viewOf(c, this.me) ?? (this.inBar(c) ? "done" : null)) : null;
   }
 
-  /** What each view holds, by item id: the tables by their own rule, the lists by bucket. */
-  views(): Record<View, string[]> {
+  /** Whether the item sits in the inbox's Done bar; the session has no plans. */
+  inBar(c: Classified): boolean {
+    return inDoneBar(c, this.handledUntil.get(c.item.id), this.me, this.nowMs, false);
+  }
+
+  /** What each view holds, by item id: the tables by their own rule, the lists by bucket, and `done` the inbox's Done bar. */
+  views(): Record<View | "done", string[]> {
     const all = this.classified();
     const ids = (keep: (c: Classified) => boolean) => all.filter(keep).map((c) => c.item.id);
     return {
@@ -330,7 +336,7 @@ export class InboxSession {
       authored: ids((c) => isOwnOpen(c, this.me)),
       planned: ids((c) => datedOf(c, this.today.focus, this.today.planned, localDay(this.world.now)) !== null),
       snoozed: ids(isWaiting),
-      done: ids((c) => c.bucket === "done"),
+      done: ids((c) => this.inBar(c)),
     };
   }
 

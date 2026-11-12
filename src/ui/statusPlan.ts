@@ -4,6 +4,9 @@ import { sameLogin } from "../timeline";
 import { onPlate } from "./assignments";
 import type { View } from "./labels";
 
+/** Where a status is chosen: a view, or a row of the inbox's Done bar ("done"). */
+export type Place = View | "done";
+
 /**
  * Why D has nothing to end on an item without asks: the viewer opened it ("own"; it ends by
  * closing or merging it on GitHub).
@@ -39,20 +42,20 @@ export type StatusPlan =
  * - Planned: as in the item's home view, an assignment as in Assigned to me, an own item as in
  *   Created by me, anything else is filed as in the inbox.
  * - Follow-up: D ends the follow-up ("clear"); the item returns where it came from.
- * - Done: "none".
+ * - The Done bar of the inbox ("done"): "none".
  *
  * "Open" on an item whose part is done takes it back into the work ("resume").
  *
  * @param c       The item as classified.
  * @param status  The status the viewer chose.
  * @param me      The viewer's login.
- * @param view    The view the viewer chose it in.
+ * @param view    The view the viewer chose it in, or "done" for a row of the Done bar.
  *
  * @example
  *   planStatus(entry, "done", "octocat", "inbox");    // { do: "file" } for an assignment with a mention
  *   planStatus(entry, "done", "octocat", "assigned"); // { do: "hand-off" } for the same one
  */
-export function planStatus(c: Classified, status: Status, me: string, view: View): StatusPlan {
+export function planStatus(c: Classified, status: Status, me: string, view: Place): StatusPlan {
   if (status === "open" && c.updates) return { do: "resume" };
   if (status !== "done") return { do: "set", status };
   if (view === "done") return { do: "none" };
@@ -78,7 +81,7 @@ export function planStatus(c: Classified, status: Status, me: string, view: View
  * @example
  *   needsAskChoice(entry, "done", "octocat", "assigned"); // true for an assignment with a mention
  */
-export function needsAskChoice(c: Classified, status: Status, me: string, view: View): boolean {
+export function needsAskChoice(c: Classified, status: Status, me: string, view: Place): boolean {
   return c.asks.length > 0 && planStatus(c, status, me, view).do === "hand-off";
 }
 
@@ -117,13 +120,14 @@ export function actsOnClosed(plan: StatusPlan): boolean {
 
 /**
  * How D is offered for an item in a view: as usual while it files, hands off or sets something,
- * not at all where it never applies (Created by me, and own items in Planned), and as the only
- * status of a closed item that waits in the inbox.
+ * not at all where it never applies (Created by me, own items in Planned, the Done bar), and as
+ * the only status of a closed item that waits in the inbox.
  *
  * @example
  *   doneAccess(entry, "octocat", "authored"); // "hidden" for any own item
  */
-export function doneAccess(c: Classified, me: string, view: View): DoneAccess {
+export function doneAccess(c: Classified, me: string, view: Place): DoneAccess {
+  if (view === "done") return "hidden";
   const plan = planStatus(c, "done", me, view);
   return plan.do === "blocked" ? "hidden" : c.item.closed && actsOnClosed(plan) ? "closed" : "on";
 }

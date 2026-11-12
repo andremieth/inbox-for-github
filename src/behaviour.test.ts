@@ -9,6 +9,7 @@ import { isWaiting } from "./ui/followUp";
 import { VIEWS, type View } from "./ui/labels";
 import { datedOf } from "./ui/plan";
 import { doneAccess } from "./ui/statusPlan";
+import { inDoneBar } from "./ui/doneBar";
 
 // Walks the table in docs/reference/behaviour.md, one describe per rule.
 const ME = "octocat";
@@ -28,18 +29,19 @@ function walk(rows: Row[]): void {
   }
 }
 
-/** Every view the entry shows in, in sidebar order, with the session's pins and plans. */
-function viewsOf(c: Classified): View[] {
-  const { focus, planned } = sim.app.today;
-  const shows: Record<View, boolean> = {
+/** Every view the entry shows in, in sidebar order with the session's pins and plans, then "done" for the inbox's Done bar. */
+function viewsOf(c: Classified): (View | "done")[] {
+  const { focus, planned: plans } = sim.app.today;
+  const planned = datedOf(c, focus, plans) !== null;
+  const shows: Record<View | "done", boolean> = {
     inbox: c.bucket === "inbox",
-    planned: datedOf(c, focus, planned) !== null,
+    planned,
     snoozed: isWaiting(c),
     assigned: onPlate(c, ME),
     authored: isOwnOpen(c, ME),
-    done: c.bucket === "done",
+    done: inDoneBar(c, sim.app.handledUntil.get(c.item.id), ME, sim.world.now.getTime(), planned),
   };
-  return VIEWS.map((v) => v.id).filter((v) => shows[v]);
+  return [...VIEWS.map((v) => v.id), "done" as const].filter((v) => shows[v]);
 }
 
 const later = (world: GitHubSimulator, ms: number) => new Date(world.now.getTime() + ms).toISOString();
@@ -307,7 +309,7 @@ describe("rule 3: D on someone else's item files it; there is no stored done for
         const issue = await mentioned(world, app, { assignees: [ME] });
         app.done(issue);
         expect(app.statuses.get(issue.id)).toBeUndefined();
-        expect(viewsOf(app.entry(issue))).toEqual(["assigned"]);
+        expect(viewsOf(app.entry(issue))).toEqual(["assigned", "done"]);
       },
     },
   ]);
@@ -345,14 +347,12 @@ describe("rule 4: the Done bar shows what was handled in the last N days and has
     },
     {
       situation: "Done is a bar, not a view of the sidebar",
-      diverges: "#109: Done is still one of the views",
       run: () => {
         expect(VIEWS.map((v) => v.id)).not.toContain("done");
       },
     },
     {
       situation: "a mention filed with D on an assignment is in Done",
-      diverges: "#109: filed asks show in no Done view",
       run: async (world, app) => {
         const issue = await mentioned(world, app, { assignees: [ME] });
         app.done(issue);
@@ -361,12 +361,24 @@ describe("rule 4: the Done bar shows what was handled in the last N days and has
     },
     {
       situation: "what was handled more than 7 days ago leaves Done",
-      diverges: "#109: Done keeps it for good",
       run: async (world, app) => {
         const issue = await mentioned(world, app);
         await app.comment(issue, "Will do.");
         world.advance(8 * DAY);
         expect(viewsOf(app.entry(issue))).not.toContain("done");
+      },
+    },
+    {
+      situation: "a thread reply filed with D, with no mention or review request, is in Done",
+      run: async (world, app) => {
+        const pr = world.pullRequest();
+        world.review(pr, ME, "COMMENTED", { inline: [{ path: "a.ts", line: 1, body: "Why?" }] });
+        await app.refresh();
+        world.advance(HOUR);
+        world.replyInThread(pr, 0, "alice", "Because of the cache.");
+        await refetch(world, app, pr);
+        app.done(pr);
+        expect(viewsOf(app.entry(pr))).toEqual(["done"]);
       },
     },
     {

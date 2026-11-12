@@ -3,7 +3,7 @@ import { classify, type Classified } from "../classify";
 import type { Item } from "../model";
 import { ruleSwitches } from "../rules";
 import type { View } from "./labels";
-import { doneAccess, keepsItsPlan, lockedDone, needsAskChoice, planStatus } from "./statusPlan";
+import { doneAccess, keepsItsPlan, lockedDone, needsAskChoice, planStatus, type Place } from "./statusPlan";
 
 const ME = "me";
 
@@ -21,7 +21,7 @@ describe("planStatus", () => {
   const shared = { assignees: [ME, "bob"] };
   const own = { author: ME, assignees: [ME] };
   const others = { assignees: [], reasons: ["mentioned" as const] };
-  const plan = (c: Classified, view: View) => planStatus(c, "done", ME, view);
+  const plan = (c: Classified, view: Place) => planStatus(c, "done", ME, view);
 
   describe("in the inbox", () => {
     it("files what asks on an assignment, an own item or a handed-off one", () => {
@@ -95,7 +95,7 @@ describe("planStatus", () => {
     });
   });
 
-  describe("in Done", () => {
+  describe("in the Done bar", () => {
     it("does nothing", () => {
       expect(plan(entry(others), "done")).toEqual({ do: "none" });
     });
@@ -113,6 +113,11 @@ describe("doneAccess", () => {
     expect(doneAccess(entry({ author: ME, kind: "pr", assignees: [], reasons: ["involved"] }), ME, "authored")).toBe("hidden");
     expect(doneAccess(entry({ author: ME, assignees: [ME] }, ["mention"]), ME, "authored")).toBe("hidden");
     expect(doneAccess(entry({ author: ME, assignees: [ME] }, ["mention"]), ME, "inbox")).toBe("on");
+  });
+
+  it("hides D on a row of the Done bar, also with news after my part done", () => {
+    expect(doneAccess(entry({ assignees: [] }), ME, "done")).toBe("hidden");
+    expect(doneAccess({ ...entry({ assignees: [ME] }), updates: [] }, ME, "done")).toBe("hidden");
   });
 
   it("offers D alone for a closed item whose closing waits in the inbox", () => {

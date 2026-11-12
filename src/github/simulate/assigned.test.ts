@@ -229,7 +229,7 @@ describe("My part done", () => {
     expect(app.entry(issue).asks).toEqual(["update"]);
   });
 
-  it("shows a closed assignment nowhere once the closing was ticked off, and never under Done", async () => {
+  it("shows a closed assignment nowhere once the closing was ticked off, not even in the Done bar", async () => {
     const { world, app } = sim;
     const issue = world.issue({ assignees: ["octocat", "alice"] });
     await app.refresh();

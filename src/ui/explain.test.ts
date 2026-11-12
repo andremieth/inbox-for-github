@@ -161,9 +161,10 @@ describe("explain, for planned items", () => {
 
 describe("bucketHelp", () => {
   it("describes every view and follows the reopen setting", () => {
-    for (const view of ["inbox", "planned", "snoozed", "done", "assigned", "authored"] as const) {
+    for (const view of ["inbox", "planned", "snoozed", "assigned", "authored"] as const) {
       expect(bucketHelp(view, "mention").points.length).toBeGreaterThan(0);
     }
     expect(bucketHelp("snoozed", "any-post").points[0]).toMatch(/jemand anderes kommentiert/);
+    expect(bucketHelp("inbox", "mention").points.at(-1)).toMatch(/in den letzten 7 Tagen/);
   });
 });
