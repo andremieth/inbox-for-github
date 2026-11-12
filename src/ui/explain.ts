@@ -1,4 +1,4 @@
-import type { Classified } from "../classify";
+import { newestAsk, type Classified } from "../classify";
 import type { Reopen } from "../model";
 import { t } from "./i18n";
 import { ago, agoInSentence, updateSummary, type View } from "./labels";
@@ -39,7 +39,9 @@ export function explain(entry: Classified, reopenOn: Reopen, me = "", dated: Dat
 
   // In the inbox the asks say why, whatever else is stored: a follow-up that waits in place, a part that is done.
   if (asks.length > 0) {
-    const lines = asks.map((ask) => {
+    // The newest ask first: it is the one the row is dated by.
+    const newest = newestAsk(entry)?.ask;
+    const lines = (newest ? [newest, ...asks.filter((ask) => ask !== newest)] : asks).map((ask) => {
       switch (ask) {
         case "update":
           return t("explain.update", { what: updateSummary(entry.updates ?? []) });
@@ -47,14 +49,20 @@ export function explain(entry: Classified, reopenOn: Reopen, me = "", dated: Dat
           return t("explain.review");
         case "commits":
           return t("explain.commits");
+        case "opened":
+          return t("explain.opened", { ago: agoInSentence(entry.asked.opened ?? "") });
         case "reopened":
-          return t("explain.reopened", { ago: statusAt ? agoInSentence(statusAt) : "" });
+          return t("explain.reopened", { name: entry.reopenedBy ?? "", ago: agoInSentence(entry.asked.reopened ?? "") });
+        case "post":
+          return t("explain.post", { name: entry.postedBy ?? "", ago: agoInSentence(entry.asked.post ?? "") });
         case "feedback":
           return t(`explain.feedback.${entry.feedback!.kind}`, { name: entry.feedback!.by, ago: agoInSentence(entry.feedback!.at) });
         case "reply":
           return t("explain.reply", { name: entry.repliedBy ?? "" });
         case "closed":
           return t("explain.closedByOther", { name: entry.closedBy ?? "" });
+        case "due":
+          return t("explain.due", { ago: agoInSentence(entry.asked.due ?? "") });
         case "mention":
           return mention!.self
             ? t("explain.reminder", { ago: agoInSentence(mention!.at) })
@@ -139,7 +147,7 @@ export function bucketHelp(view: View, reopenOn: Reopen): { lead: string; points
     case "inbox":
       return {
         lead: t("help.inbox.lead"),
-        points: [t("help.inbox.mention"), t("help.inbox.review"), t("help.inbox.commits"), t("help.inbox.feedback"), t("help.inbox.reply"), t("help.inbox.closed"), t("help.inbox.update"), t("help.inbox.reopened")],
+        points: [t("help.inbox.mention"), t("help.inbox.review"), t("help.inbox.commits"), t("help.inbox.feedback"), t("help.inbox.reply"), t("help.inbox.closed"), t("help.inbox.update"), t("help.inbox.due"), t("help.inbox.reopened"), t("help.inbox.post"), t("help.inbox.opened")],
       };
     case "assigned":
       return { lead: t("help.assigned.lead"), points: [t("help.assigned.leaves"), t("help.assigned.back"), t("help.assigned.dated")] };

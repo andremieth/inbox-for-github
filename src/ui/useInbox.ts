@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ghToken } from "../github/token";
 import { classify, type Classified } from "../classify";
-import { snoozeEnded } from "../reopen";
 import { lastBudget, missingScopes, pointsSpent, RateLimitError, tokenScopes, type Budget, type Scope } from "../github/client";
 import { addRequested, canDelta, covers, decodeScope, DELTA_OVERLAP_MS, encodeScope, findTransfers, mergeDelta, mergeReloaded, transferCandidates, unseenReviews, widensClosed, withdrawReviews, withinClosedWindow, type Coverage } from "../github/delta";
 import { fetchBoards } from "../github/boards";
@@ -154,8 +153,8 @@ function legacyDone(c: Classified, viewer: string): boolean {
  * Owns the app state: opens the local store, reads the token from the `gh` CLI, fetches the
  * items for the configured organizations and classifies them with the enabled rules.
  *
- * Statuses that a rule resets are deleted from the store as a side effect, so the reset sticks.
- * At start the last successful fetch comes from the store, so the list shows at once and also
+ * Nothing a rule finds is written back to bring an item back; only repairs are (a "done" D may
+ * no longer finish, a "done" from before "my part done"). At start the last successful fetch comes from the store, so the list shows at once and also
  * without a connection; a failed fetch keeps it and sets `error`. Fetching starts once the store
  * is open and restarts whenever the organization list changes; it
  * repeats every `settings.refreshMinutes` minutes, or never when that is 0. Within
@@ -707,10 +706,6 @@ export function useInbox(): Inbox {
 
   useEffect(() => {
     for (const c of classified) {
-      // A new assignment is a fresh start: no status is left to anchor on.
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- writes the store first; state follows only after that await
-      if (c.renewed) void clearStatus(c.item.id, "auto:reassigned");
-      else if (c.statusReset) void writeStatus(c.item.id, "open", true, {}, snoozeEnded(statuses.get(c.item.id), now) ? "auto:snooze-ended" : "auto:reopen");
       if (me && lockedDone(c, statuses.get(c.item.id), me) && !converting.current.has(c.item.id)) {
         converting.current.add(c.item.id);
         void clearStatus(c.item.id, "auto:locked");
@@ -720,7 +715,7 @@ export function useInbox(): Inbox {
         void writeStatus(c.item.id, "done", true, { handoff: snapshotOf(c.item) }, "auto:legacy-done");
       }
     }
-  }, [classified, writeStatus, clearStatus, me, statuses, now]);
+  }, [classified, writeStatus, clearStatus, me, statuses]);
 
   const latestClassified = useRef(classified);
   useEffect(() => {
@@ -731,7 +726,7 @@ export function useInbox(): Inbox {
   const logged = useRef(new Map<string, string>());
   useEffect(() => {
     for (const c of classified) {
-      const why = `${c.bucket} asks=${c.asks.join("+") || "none"} status=${c.status} answered=${c.answered ?? "no"}${c.statusReset ? " reset" : ""}`;
+      const why = `${c.bucket} asks=${c.asks.join("+") || "none"} status=${c.status} answered=${c.answered ?? "no"}`;
       if (logged.current.get(c.item.id) === why) continue;
       logged.current.set(c.item.id, why);
       log.verbose("classify", { item: ref(c.item), why, reasons: c.item.reasons.join("+"), title: c.item.title });

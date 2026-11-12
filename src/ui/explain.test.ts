@@ -45,7 +45,23 @@ function item(overrides: Partial<Item> = {}): Item {
 const why = (i: Item, stored?: StoredStatus) => explain(classify(i, ME, stored, ruleSwitches()), "mention");
 
 describe("explain", () => {
-  it("lists every open ask of an inbox item", () => {
+  it("names a due follow-up first, before what it asks again", () => {
+    const mentioned = item({ reasons: ["mentioned"], comments: [comment("bob", "@me can you check?", 1)] });
+    const result = explain(classify(mentioned, ME, { status: "snoozed", changedAt: at(2), until: at(3) }, ruleSwitches(), "mention", Date.parse(at(4))), "mention");
+    expect(result.lines[0]).toMatch(/^Deine Wiedervorlage ist .* fällig geworden/);
+    expect(result.lines[1]).toMatch(/^@bob hat dich .* erwähnt/);
+  });
+
+  it("names who reopened it on GitHub, and who posted with Any post", () => {
+    const answered = [comment("bob", "@me can you check?", 1), comment(ME, "Sure.", 2)];
+    const reopened = item({ reasons: ["mentioned"], comments: answered, activities: [{ kind: "state", at: at(3), actor: "carol", change: "reopened" }] });
+    expect(why(reopened).lines[0]).toMatch(/^@carol hat es .* auf GitHub wieder geöffnet/);
+    const posted = item({ reasons: ["mentioned"], comments: [...answered, comment("dave", "Any news?", 4)] });
+    const post = explain(classify(posted, ME, undefined, ruleSwitches(), "any-post", Date.parse(at(5)), true, at(3)), "any-post");
+    expect(post.lines[0]).toMatch(/^@dave hat .* geschrieben/);
+  });
+
+  it("lists every open ask of an inbox item, the newest first", () => {
     const result = why(
       item({
         kind: "pr",
@@ -56,8 +72,8 @@ describe("explain", () => {
     );
     expect(result.tone).toBe("inbox");
     expect(result.lines).toHaveLength(2);
-    expect(result.lines[0]).toMatch(/^Dein Review ist angefragt/);
-    expect(result.lines[1]).toMatch(/^@bob hat dich .* erwähnt/);
+    expect(result.lines[0]).toMatch(/^@bob hat dich .* erwähnt/);
+    expect(result.lines[1]).toMatch(/^Dein Review ist angefragt/);
   });
 
   it("explains an assignment without an ask as being in Assigned to me", () => {
