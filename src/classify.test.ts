@@ -54,8 +54,8 @@ const MENTIONS_ONLY: AskRules = { ownFeedback: "off", assignedFeedback: false, t
 const run = (i: Item, stored?: StoredStatus, overrides?: Record<string, boolean>, reopenOn?: Reopen) =>
   classify(i, ME, stored, ruleSwitches(overrides), reopenOn, undefined, undefined, undefined, MENTIONS_ONLY);
 
-const withRules = (i: Item, rules: Partial<AskRules> = {}, stored?: StoredStatus, filedAt?: string) =>
-  classify(i, ME, stored, ruleSwitches(), "mention", Date.parse("2026-10-20T00:00:00Z"), true, undefined, { ...ASK_RULES_DEFAULT, ...rules }, filedAt);
+const withRules = (i: Item, rules: Partial<AskRules> = {}, stored?: StoredStatus, handledUntil?: string) =>
+  classify(i, ME, stored, ruleSwitches(), "mention", Date.parse("2026-10-20T00:00:00Z"), true, handledUntil, { ...ASK_RULES_DEFAULT, ...rules });
 
 describe("findMention", () => {
   it("matches the login case-insensitively", () => {
@@ -437,7 +437,7 @@ describe("my part done", () => {
   });
 
   it("does not bring back a mention the plan already answered, but keeps a later one", () => {
-    const plan = (i: Item) => classify(i, ME, done, ruleSwitches(), "mention", undefined, true, "2026-10-04T00:00:00Z", MENTIONS_ONLY);
+    const plan = (i: Item) => classify(i, ME, done, ruleSwitches(), "mention", undefined, true, "2026-10-04T00:00:00Z", MENTIONS_ONLY, true);
     const before = assigned({ comments: [comment("bob", "@me can you look?", 3)] });
     expect(plan(before)).toMatchObject({ bucket: "assigned", asks: [] });
     const after = assigned({ comments: [comment("bob", "@me can you look?", 4), comment("bob", "@me ping", 5)] });
@@ -458,7 +458,7 @@ describe("my part done", () => {
 
 describe("planned items", () => {
   const at = (day: number, hour = 0) => `2026-10-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:00:00Z`;
-  const planned = (i: Item, plannedAt: string, stored?: StoredStatus) => classify(i, ME, stored, ruleSwitches(), "mention", Date.parse(at(10)), true, plannedAt);
+  const planned = (i: Item, plannedAt: string, stored?: StoredStatus) => classify(i, ME, stored, ruleSwitches(), "mention", Date.parse(at(10)), true, plannedAt, ASK_RULES_DEFAULT, true);
   const requested = (day: number, reviewer = ME) => ({ kind: "review-requested" as const, at: at(day), actor: "alice", reviewer });
 
   it("leave the inbox for Planned once planned, and come back on a mention since", () => {
@@ -532,8 +532,9 @@ describe("feedback, thread replies and closings", () => {
 
   it("adds feedback on a waiting table item to the inbox without ending the follow-up", () => {
     const waiting: StoredStatus = { status: "snoozed", changedAt: at(2), until: "2026-10-30T09:00:00Z" };
-    expect(withRules(assigned({ comments: [comment("bob", "progress?", 3)] }), {}, waiting)).toMatchObject({ bucket: "inbox", status: "snoozed", asks: ["feedback"] });
-    expect(withRules(assigned({ comments: [comment("bob", "progress?", 1)] }), {}, waiting)).toMatchObject({ bucket: "assigned", asks: [] });
+    // F set handled-until when it started the follow-up.
+    expect(withRules(assigned({ comments: [comment("bob", "progress?", 3)] }), {}, waiting, at(2))).toMatchObject({ bucket: "inbox", status: "snoozed", asks: ["feedback"] });
+    expect(withRules(assigned({ comments: [comment("bob", "progress?", 1)] }), {}, waiting, at(2))).toMatchObject({ bucket: "assigned", asks: [] });
   });
 
   it("asks for an answer in a review thread the viewer wrote in, and brings a done item back for it", () => {
@@ -599,5 +600,41 @@ describe("a new assignment or a reopen on GitHub", () => {
   it("counts a reopen as an update on a handed-off part", () => {
     expect(run(assigned({ activities: [reopenedBy("bob", 6)] }), handoff)).toMatchObject({ bucket: "inbox", status: "done", asks: ["update"], updates: [{ kind: "reopened", by: "bob" }] });
     expect(run(assigned({ activities: [reopenedBy("bob", 3)] }), handoff).updates).toEqual([]);
+  });
+});
+
+describe("D files instead of storing a done", () => {
+  const at = (day: number) => `2026-10-${String(day).padStart(2, "0")}T00:00:00Z`;
+  const handled = (i: Item, handledUntil: string, reopenOn: Reopen = "mention") => classify(i, ME, undefined, ruleSwitches(), reopenOn, Date.parse(at(20)), true, handledUntil, ASK_RULES_DEFAULT);
+  const filed = item({ comments: [comment("alice", "@me look", 2), comment("bob", "Any news here?", 5)] });
+
+  it("brings a filed item back on any post by someone else with Any post", () => {
+    expect(handled(filed, at(3), "any-post")).toMatchObject({ bucket: "inbox", asks: ["reopened"] });
+    expect(handled(filed, at(3))).toMatchObject({ bucket: "done", asks: [] });
+    expect(handled(filed, at(6), "any-post")).toMatchObject({ bucket: "done", asks: [] });
+  });
+
+  it("lets an own reply answer the post that brought it back with Any post", () => {
+    const answered = item({ comments: [comment("alice", "@me look", 2), comment("bob", "Any news here?", 5), comment(ME, "Next week.", 6)] });
+    expect(handled(answered, at(3), "any-post")).toMatchObject({ bucket: "done", asks: [] });
+  });
+
+  it("leaves table items to their own asks with Any post", () => {
+    const own = item({ author: ME, reasons: ["involved"], comments: [comment("bob", "Any news here?", 5)] });
+    expect(classify(own, ME, undefined, ruleSwitches(), "any-post", Date.parse(at(20)), true, at(6), ASK_RULES_DEFAULT).asks).toEqual([]);
+  });
+
+  it("brings a filed item back on a reopen by someone else", () => {
+    const reopened = item({ comments: [comment("alice", "@me look", 2)], activities: [{ kind: "state", change: "reopened", at: at(5), actor: "bob" }] });
+    expect(handled(reopened, at(3))).toMatchObject({ bucket: "inbox", asks: ["reopened"] });
+    expect(handled(reopened, at(6)).bucket).toBe("done");
+  });
+
+  it("ticks off the news after my part done by handled-until", () => {
+    const part: StoredStatus = { status: "done", changedAt: at(2), handoff: { boards: {}, prs: [] } };
+    const news = item({ reasons: ["assigned", "involved"], assignees: [ME], comments: [comment("bob", "Shipped.", 4)] });
+    const run = (handledUntil?: string) => classify(news, ME, part, ruleSwitches(), "mention", Date.parse(at(20)), true, handledUntil, ASK_RULES_DEFAULT);
+    expect(run()).toMatchObject({ bucket: "inbox", asks: ["update"] });
+    expect(run(at(5))).toMatchObject({ bucket: "assigned", asks: [] });
   });
 });

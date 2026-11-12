@@ -57,6 +57,8 @@ export class InboxSession {
   readonly settings: Required<SessionSettings>;
   /** The "filedAt" setting: when D last filed an item's asks without finishing it. */
   readonly filedAt = new Map<string, string>();
+  /** Handled-until per item, as `useInbox().handledUntil`: D in the inbox and F set it; the session has no plans. */
+  readonly handledUntil = new Map<string, string>();
   private last: { fetchedAt: Date; fullAt: Date; key: string } | null = null;
   private undoStep: (() => void) | null = null;
 
@@ -173,33 +175,43 @@ export class InboxSession {
     const c = this.entry(ref);
     const previous = this.statuses.get(ref.id);
     const logged = this.log.get(ref.id) ?? [];
+    const handledBefore = this.handledUntil.get(ref.id);
     const restore = () => {
       this.log.set(ref.id, logged);
       if (previous) this.statuses.set(ref.id, previous);
       else this.statuses.delete(ref.id);
+      if (handledBefore) this.handledUntil.set(ref.id, handledBefore);
+      else this.handledUntil.delete(ref.id);
     };
-    const plan = planStatus(c, status, this.me, viewOf(c, this.me) ?? "inbox");
+    const view = viewOf(c, this.me) ?? "inbox";
+    const plan = planStatus(c, status, this.me, view);
     switch (plan.do) {
       case "resume":
-      case "clear":
         this.statuses.delete(ref.id);
         break;
-      case "file": {
+      case "clear":
+        this.statuses.delete(ref.id);
+        if (view !== "snoozed") this.handledUntil.set(ref.id, this.world.stamp());
+        break;
+      case "file":
+      case "tick-update": {
         const before = this.filedAt.get(ref.id);
-        this.filedAt.set(ref.id, this.world.now.toISOString());
-        this.undoStep = () => (before ? this.filedAt.set(ref.id, before) : this.filedAt.delete(ref.id));
+        const at = this.world.stamp();
+        this.filedAt.set(ref.id, at);
+        this.handledUntil.set(ref.id, at);
+        if (plan.do === "tick-update" && !c.item.closed && previous?.handoff) this.statuses.set(ref.id, { ...previous, handoff: snapshotOf(c.item) });
+        this.undoStep = () => (before ? this.filedAt.set(ref.id, before) : this.filedAt.delete(ref.id), restore());
         return;
       }
       case "blocked":
         return;
-      case "tick-update":
       case "hand-off":
-        if (plan.do === "tick-update" && c.bucket === "inbox") this.filedAt.set(ref.id, this.world.stamp());
         this.write(ref.id, "done", false, { handoff: snapshotOf(c.item) });
         break;
       case "set":
         if (c.item.closed || (c.status === plan.status && until === undefined)) return;
         this.write(ref.id, plan.status, false, until ? { until } : {});
+        if (plan.status !== "open") this.handledUntil.set(ref.id, this.world.stamp());
         break;
       case "none":
         return;
@@ -248,7 +260,7 @@ export class InboxSession {
     const list = () =>
       withinClosedWindow(this.items, this.settings.closedDays, this.nowMs).map((raw) => {
         const item = directOnly(raw, this.me, this.settings.directOnly);
-        return classify(item, this.me, this.statuses.get(item.id), switches, this.settings.reopenOn, this.nowMs, this.settings.reviewOnCommits, undefined, this.settings.askRules, this.filedAt.get(item.id));
+        return classify(item, this.me, this.statuses.get(item.id), switches, this.settings.reopenOn, this.nowMs, this.settings.reviewOnCommits, this.handledUntil.get(item.id), this.settings.askRules);
       });
     for (let pass = 0; pass < 3; pass++) {
       let changed = false;
@@ -306,6 +318,8 @@ export class InboxSession {
       for (const [id, value] of next) map.set(id, value);
     };
     refill(this.statuses, movedKeys(this.statuses, moves));
+    refill(this.handledUntil, movedKeys(this.handledUntil, moves));
+    refill(this.filedAt, movedKeys(this.filedAt, moves));
     refill(this.log, movedLists(this.log, moves));
     refill(this.writeFailures, movedLists(this.writeFailures, moves));
   }

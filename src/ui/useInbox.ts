@@ -10,7 +10,7 @@ import { repoVisible } from "../repoFilter";
 import { recentInput } from "./inputTrail";
 import { snapshotOf } from "../handoff";
 import { sameLogin } from "../timeline";
-import type { Item, Org, Status, StatusChange, StoredStatus, StatusExtra, WriteFailure } from "../model";
+import type { Handoff, Item, Org, Status, StatusChange, StoredStatus, StatusExtra, WriteFailure } from "../model";
 import { ruleSwitches } from "../rules";
 import { directOnly } from "../rules/directOnly";
 import { log, logContext, setLogLevel } from "../log";
@@ -63,6 +63,10 @@ export interface Inbox {
    * marked unread after that time stays unread, so a pending "seen" timer cannot undo the mark.
    */
   markSeen: (nodeId: string, openedAt?: string) => Promise<void>;
+  /** Item id → the time up to which the viewer handled the item's asks (D, P, T, F set it). */
+  handledUntil: ReadonlyMap<string, string>;
+  /** Sets an item's handled-until, or removes it with null; for an undo that restores none. */
+  setHandledUntil: (nodeId: string, at: string | null) => Promise<void>;
   /** Items the viewer marked unread by hand, with when, until they open them again. */
   unreadMarks: ReadonlyMap<string, string>;
   markUnread: (nodeId: string) => Promise<void>;
@@ -79,6 +83,8 @@ export interface Inbox {
   resetStatuses: () => Promise<number>;
   /** Puts back a stored status exactly as it was, or none; for undoing a change with extras. */
   restoreStatus: (nodeId: string, previous: StoredStatus | undefined) => Promise<void>;
+  /** Replaces the hand-off snapshot of a stored "my part done", keeping its time and log. */
+  setHandoff: (nodeId: string, handoff: Handoff) => Promise<void>;
   /** The classification as of now, for code that runs later (an undo) and must not see the render that scheduled it. */
   classifiedNow: () => Classified[];
   /** The stored statuses per item id. */
@@ -167,6 +173,7 @@ export function useInbox(): Inbox {
   const [statusLog, setStatusLog] = useState<Map<string, StatusChange[]>>(new Map());
   const [seen, setSeen] = useState<Map<string, string>>(new Map());
   const [unreadMarks, setUnreadMarks] = useState<Map<string, string>>(new Map());
+  const [handledUntil, setHandledUntilMap] = useState<Map<string, string>>(new Map());
   const [notes, setNotes] = useState<Map<string, string>>(new Map());
   const [items, setItems] = useState<Item[]>([]);
   const [me, setMe] = useState<string | null>(null);
@@ -231,6 +238,7 @@ export function useInbox(): Inbox {
         setStatusLog((current) => movedLists(current, moves));
         setSeen((current) => movedKeys(current, moves));
         setUnreadMarks((current) => movedKeys(current, moves));
+        setHandledUntilMap((current) => movedKeys(current, moves));
         setNotes((current) => movedKeys(current, moves));
         setWriteFailures((current) => movedLists(current, moves));
       };
@@ -267,6 +275,7 @@ export function useInbox(): Inbox {
       setStatusLog(await opened.statusLog());
       setSeen(await opened.seen());
       setUnreadMarks(await opened.unreadMarks());
+      setHandledUntilMap(await opened.handledUntil());
       setNotes(await opened.notes());
       const cached = await opened.cachedFetch();
       log.debug("cache loaded", { items: cached?.items.length ?? 0, fetchedAt: cached?.fetchedAt.toISOString(), fullAt: cached?.fullAt?.toISOString(), scope: cached?.scope });
@@ -567,15 +576,14 @@ export function useInbox(): Inbox {
     if (!me) return [];
     const switches = ruleSwitches(settings.rules);
     const untracked = new Set(settings.untracked.map((u) => u.id));
-    // A plan counts while the item is pinned or planned; a time left behind by a dropped pin does not.
     const dated = new Set([...settings.focus, ...settings.planned.map((p) => p.id)]);
     // The cache may hold more than the settings ask for (see `Coverage`); show only that.
     return withinClosedWindow(items, settings.closedDays)
       .filter((item) => repoVisible(item.repo, settings.repoFilters) && !untracked.has(item.id))
       .map((item) => directOnly(item, me, settings.directOnly))
       .map((item) => (settings.loadBoards ? item : { ...item, boards: [] }))
-      .map((item) => classify(item, me, statuses.get(item.id), switches, settings.reopenOn, now, settings.reviewOnCommits, dated.has(item.id) ? settings.plannedAt[item.id] : undefined, askRules, settings.filedAt[item.id]));
-  }, [items, me, statuses, settings.rules, settings.reopenOn, settings.reviewOnCommits, askRules, settings.filedAt, settings.repoFilters, settings.directOnly, settings.untracked, settings.closedDays, settings.loadBoards, settings.focus, settings.planned, settings.plannedAt, now]);
+      .map((item) => classify(item, me, statuses.get(item.id), switches, settings.reopenOn, now, settings.reviewOnCommits, handledUntil.get(item.id), askRules, dated.has(item.id)));
+  }, [items, me, statuses, settings.rules, settings.reopenOn, settings.reviewOnCommits, askRules, handledUntil, settings.repoFilters, settings.directOnly, settings.untracked, settings.closedDays, settings.loadBoards, settings.focus, settings.planned, now]);
 
   const writeStatus = useCallback(
     async (nodeId: string, status: Status, automatic: boolean, extra: StatusExtra = {}, source = manualSource()) => {
@@ -622,6 +630,7 @@ export function useInbox(): Inbox {
     const cleared = await store.resetStatuses(undefined, "settings:reset");
     log.debug("statuses reset", { count: cleared.size, source: "settings:reset" });
     setStatuses(new Map());
+    setHandledUntilMap(new Map());
     setStatusLog((current) => {
       const next = new Map(current);
       for (const [id, change] of cleared) next.set(id, [...(next.get(id) ?? []), change]);
@@ -629,6 +638,33 @@ export function useInbox(): Inbox {
     });
     return cleared.size;
   }, [store]);
+
+  const setHandledUntil = useCallback(
+    async (nodeId: string, at: string | null) => {
+      if (!store) return;
+      await store.setHandledUntil(nodeId, at);
+      setHandledUntilMap((current) => {
+        const next = new Map(current);
+        if (at === null) next.delete(nodeId);
+        else next.set(nodeId, at);
+        return next;
+      });
+    },
+    [store],
+  );
+
+  /** Swaps the hand-off snapshot of a stored "my part done", keeping its time (see `Store.setHandoff`). */
+  const setHandoff = useCallback(
+    async (nodeId: string, handoff: Handoff) => {
+      if (!store) return;
+      await store.setHandoff(nodeId, handoff);
+      setStatuses((current) => {
+        const stored = current.get(nodeId);
+        return stored ? new Map(current).set(nodeId, { ...stored, handoff }) : current;
+      });
+    },
+    [store],
+  );
 
   /** Takes back the last status change exactly, extras and time included (see `Store.restoreStatus`). */
   const restoreStatus = useCallback(
@@ -736,7 +772,10 @@ export function useInbox(): Inbox {
     setStatus,
     clearStatus,
     resetStatuses,
+    handledUntil,
+    setHandledUntil,
     restoreStatus,
+    setHandoff,
     statuses,
     writeFailures,
     logWriteFailure,
