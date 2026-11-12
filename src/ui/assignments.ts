@@ -256,6 +256,17 @@ export function withSelfAssigned(item: Item, me: string, at: string): Item {
 }
 
 /**
+ * The item with a failed self-(un)assignment taken back: the assignees and reasons from before,
+ * and only the local event made at `at` removed from the activities, so ones that came in since stay.
+ *
+ * @example
+ *   withoutLocalEvent(item, { assignees: [], reasons: [] }, "2026-10-28T09:00:00Z");
+ */
+export function withoutLocalEvent(item: Item, before: Pick<Item, "assignees" | "reasons">, at: string): Item {
+  return { ...item, assignees: before.assignees, reasons: before.reasons, activities: item.activities.filter((a) => !((a.kind === "assigned" || a.kind === "unassigned") && a.at === at)) };
+}
+
+/**
  * The item with GitHub's assignees after a write, and the reason "assigned" to match, so it is
  * in Assigned to me exactly when the viewer is among them, whatever a refresh in between left.
  *
@@ -298,10 +309,10 @@ export function isNewAssignment(entry: Pick<Classified, "item" | "statusAt">, se
  * @example
  *   hasNewActivity(entry, new Map(), "octocat"); // true when someone commented after the assignment
  */
-export function hasNewActivity(entry: Pick<Classified, "item" | "statusAt">, seen: Map<string, string>, me: string): boolean {
+export function hasNewActivity(entry: Pick<Classified, "item" | "statusAt">, seen: Map<string, string>, me: string, counted: MovesUp = MOVES_UP_DEFAULT): boolean {
   const mine = entry.item.reasons.includes("assigned") || sameLogin(entry.item.author, me);
   const since = seen.get(entry.item.id) ?? entry.statusAt ?? (mine ? assignedAt(entry.item, me).at : null);
-  const last = lastOthersActivity(entry.item, me);
+  const last = lastOthersActivity(entry.item, me, counted);
   return !!last && !!since && last > since;
 }
 

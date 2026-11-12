@@ -47,8 +47,8 @@ import { useInbox } from "./ui/useInbox";
 import { useOrca } from "./ui/useOrca";
 import { addToOrca, openInOrca, pathText } from "./orca";
 import { useSelection } from "./ui/useSelection";
-import { assignedAt, withAssignees, withSelfAssigned, groupByRepo, groupByType, groupPlate, isActiveBar, isTypeGroup, leaveClears, localDay, moveBar, moveTypeBar, plateCount, type PlateGroup, type TableGroup, type TableGrouping } from "./ui/assignments";
-import { choiceKey, choiceText, closedPlans, datedAt, datedOf, datedText, dayChoices, dayText, isPinnable, keepsPlan, orphanLinks, planOf, replan, rollOver, setPlan, todayOf, unplan, withEvent, without, type Today } from "./ui/plan";
+import { assignedAt, withAssignees, withoutLocalEvent, withSelfAssigned, groupByRepo, groupByType, groupPlate, isActiveBar, isTypeGroup, leaveClears, localDay, moveBar, moveTypeBar, plateCount, type PlateGroup, type TableGroup, type TableGrouping } from "./ui/assignments";
+import { choiceKey, choiceText, closedPlans, datedAt, datedOf, datedText, dayChoices, dayText, isPinnable, keepsPlan, orphanLinks, planOf, replan, retouch, rollOver, setPlan, todayOf, unplan, withEvent, without, type Today } from "./ui/plan";
 import { attributeOptions, combineAttributes, shownKeys, tableKeys } from "./ui/attributes";
 import { useCollapsed } from "./ui/useCollapsed";
 import { unseenSettings } from "./ui/newSettings";
@@ -189,14 +189,17 @@ export default function App() {
   /** How D is offered for an item: as usual, or not at all (see `doneAccess`). */
   const doneIn = (c: Classified) => doneAccess(c, me, bucket);
   const unreadInboxIds = useMemo(
-    () => new Set(inbox.classified.filter((c) => c.bucket === "inbox" && (inbox.unreadMarks.has(c.item.id) || unreadInInbox(c, inbox.seen, me))).map((c) => c.item.id)),
-    [inbox.classified, inbox.seen, inbox.unreadMarks, me],
+    () => new Set(inbox.classified.filter((c) => c.bucket === "inbox" && (inbox.unreadMarks.has(c.item.id) || unreadInInbox(c, inbox.seen, me, inbox.settings.movesUp))).map((c) => c.item.id)),
+    [inbox.classified, inbox.seen, inbox.unreadMarks, inbox.settings.movesUp, me],
   );
   /** U: unread as its view counts it, or marked so by hand. */
-  const isUnread = (c: Classified) => inbox.unreadMarks.has(c.item.id) || (c.bucket === "inbox" ? unreadInInbox(c, inbox.seen, me) : unreadAssignment(c, inbox.seen, me));
+  /** Unread as the rows of `view` draw it: Assigned to me judges every row as an assignment, the same as its count. */
+  const isUnread = (c: Classified, view: View = bucket) =>
+    inbox.unreadMarks.has(c.item.id) ||
+    (view === "assigned" ? unreadAssignment(c, inbox.seen, me, true, inbox.settings.movesUp) : c.bucket === "inbox" ? unreadInInbox(c, inbox.seen, me, inbox.settings.movesUp) : unreadAssignment(c, inbox.seen, me, false, inbox.settings.movesUp));
   /** Marks the items read when any is unread, else unread, with undo that restores each item's read state exactly. */
   const toggleRead = (cs: Classified[]) => {
-    const read = cs.some(isUnread);
+    const read = cs.some((c) => isUnread(c));
     const before = cs.map((c) => ({ id: c.item.id, seen: inbox.seen.get(c.item.id), mark: inbox.unreadMarks.get(c.item.id) }));
     for (const c of cs) void (read ? inbox.markSeen(c.item.id) : inbox.markUnread(c.item.id));
     const text = cs.length === 1 ? t(read ? "toast.markedRead" : "toast.markedUnread", { number: cs[0].item.number }) : t(read ? "marks.markedRead" : "marks.markedUnread", { count: cs.length });
@@ -212,9 +215,9 @@ export default function App() {
       new Set(
         groupPlate(inbox.classified, inbox.settings.statusMap, [], me)
           .filter((g) => isActiveBar(g.group))
-          .flatMap((g) => g.entries.filter((c) => inbox.unreadMarks.has(c.item.id) || unreadAssignment(c, inbox.seen, me)).map((c) => c.item.id)),
+          .flatMap((g) => g.entries.filter((c) => inbox.unreadMarks.has(c.item.id) || unreadAssignment(c, inbox.seen, me, true, inbox.settings.movesUp)).map((c) => c.item.id)),
       ),
-    [inbox.classified, inbox.seen, inbox.unreadMarks, inbox.settings.statusMap, me],
+    [inbox.classified, inbox.seen, inbox.unreadMarks, inbox.settings.statusMap, inbox.settings.movesUp, me],
   );
   /** The items a view's count stands for, within the repository filter, whatever else narrows its list. */
   const itemsOfView = (view: View): Classified[] => {
@@ -238,8 +241,8 @@ export default function App() {
   const plannedAll = useMemo(() => scoped.filter((c) => datedOf(c, focus, plans, today) !== null), [scoped, focus, plans, today]);
   // Activity on a planned item leaves it in Planned, unread there, unless it asks the viewer again.
   const unreadPlannedIds = useMemo(
-    () => new Set(plannedAll.filter((c) => inbox.unreadMarks.has(c.item.id) || (c.bucket === "inbox" ? unreadInInbox(c, inbox.seen, me) : unreadAssignment(c, inbox.seen, me))).map((c) => c.item.id)),
-    [plannedAll, inbox.seen, inbox.unreadMarks, me],
+    () => new Set(plannedAll.filter((c) => inbox.unreadMarks.has(c.item.id) || (c.bucket === "inbox" ? unreadInInbox(c, inbox.seen, me, inbox.settings.movesUp) : unreadAssignment(c, inbox.seen, me, false, inbox.settings.movesUp))).map((c) => c.item.id)),
+    [plannedAll, inbox.seen, inbox.unreadMarks, inbox.settings.movesUp, me],
   );
   const plannedGroups = useMemo(
     () => (bucket === "planned" ? groupBySnoozeEnd(plannedAll.filter((c) => matchesText(c.item, query)), (c) => datedAt(datedOf(c, focus, plans, today)!), (c) => c.statusAt ?? "", sort.of("planned") === "oldest") : []),
@@ -258,8 +261,8 @@ export default function App() {
     [bucket, followUpAll, query, sort],
   );
   const unreadFollowUpIds = useMemo(
-    () => new Set(followUpAll.filter((c) => inbox.unreadMarks.has(c.item.id) || (c.bucket === "inbox" ? unreadInInbox(c, inbox.seen, me) : unreadAssignment(c, inbox.seen, me))).map((c) => c.item.id)),
-    [followUpAll, inbox.seen, inbox.unreadMarks, me],
+    () => new Set(followUpAll.filter((c) => inbox.unreadMarks.has(c.item.id) || (c.bucket === "inbox" ? unreadInInbox(c, inbox.seen, me, inbox.settings.movesUp) : unreadAssignment(c, inbox.seen, me, false, inbox.settings.movesUp))).map((c) => c.item.id)),
+    [followUpAll, inbox.seen, inbox.unreadMarks, inbox.settings.movesUp, me],
   );
   const followUpSprints = useMemo(() => sprintChoices(followUpAll.map((c) => c.item), hidden), [followUpAll, hidden]);
   const followUpTable = useMemo(
@@ -319,10 +322,14 @@ export default function App() {
     if (!reveal) return;
     const group = viewGroups?.find((g) => g.entries.some((c) => c.item.id === reveal))?.group;
     if (group && folded(group)) return bars.toggle(barKey(group));
-    if (ids.includes(reveal)) selection.select(reveal);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot: clears the jump target once it has landed or cannot
+    if (ids.includes(reveal)) {
+      selection.select(reveal);
+      // A table row shows nothing of the item; its pop-up is what opens it, and marks it seen.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot: the jump lands once
+      if (table) setPopup("keys");
+    }
     setReveal(null);
-  }, [reveal, viewGroups, folded, ids, bars, barKey, selection]);
+  }, [reveal, viewGroups, folded, ids, bars, barKey, selection, table]);
   const selectedBar = selection.selected?.startsWith("bar:") ? (selection.selected.slice(4) as TableGroup) : null;
   const toggleBar = (group: string) => bars.toggle(barKey(group));
   const setBar = (group: string, open: boolean) => folded(group) === open && toggleBar(group);
@@ -458,7 +465,7 @@ export default function App() {
       pinnedOn: on ? without(inbox.settings.pinnedOn, c.item.id) : { ...inbox.settings.pinnedOn, [c.item.id]: localDay() },
       plannedAt: on ? without(inbox.settings.plannedAt, c.item.id) : { ...inbox.settings.plannedAt, [c.item.id]: new Date().toISOString() },
     };
-    const steps = [todayStep(previous, next), ...(on ? eventEnds([c]) : [...followUpEnds(c), ...eventMoves(c, localDay())]), ...extra];
+    const steps = [todayStep([c.item.id], previous, next), ...(on ? eventEnds([c]) : [...followUpEnds(c), ...eventMoves(c, localDay())]), ...extra];
     for (const s of steps) s.run();
     actions.announce(
       on ? t("focus.removed", { number: c.item.number }) : replacing(t("focus.added", { number: c.item.number }), endedFollowUp(c)),
@@ -466,8 +473,11 @@ export default function App() {
       () => steps.forEach((s) => s.run()),
     );
   };
-  /** A change of Today as a step: the settings go from `previous` to `next` and back. */
-  const todayStep = (previous: Today, next: Today) => ({ run: () => void inbox.updateSettings((s) => ({ ...s, ...next })), undo: () => void inbox.updateSettings((s) => ({ ...s, ...previous })) });
+  /** A change of Today to the items `ids` as a step: their part goes from `previous` to `next` and back, the rest of Today stays. */
+  const todayStep = (ids: string[], previous: Today, next: Today) => ({
+    run: () => void inbox.updateSettings((s) => ({ ...s, ...retouch(todayOf(s), ids, next) })),
+    undo: () => void inbox.updateSettings((s) => ({ ...s, ...retouch(todayOf(s), ids, previous) })),
+  });
   /** An item has one "when": a plan or Today pin on a follow-up ends it, as a step; none when there is no follow-up. */
   const followUpEnds = (c: Classified) => (c.status === "snoozed" ? [followUpStep(c)] : []);
   /** What a plan or pin ends for the toast: the item's follow-up, with its date when it has one. */
@@ -491,7 +501,7 @@ export default function App() {
       plannedAt: day ? { ...inbox.settings.plannedAt, [c.item.id]: new Date().toISOString() } : without(inbox.settings.plannedAt, c.item.id),
     };
     const events = day ? eventMoves(c, day) : eventEnds([c]);
-    const steps = [todayStep(previous, next), ...(day ? followUpEnds(c) : []), ...events, ...extra];
+    const steps = [todayStep([c.item.id], previous, next), ...(day ? followUpEnds(c) : []), ...events, ...extra];
     for (const s of steps) s.run();
     actions.announce(
       day ? replacing(t("plan.added", { number: c.item.number, day: text }), endedFollowUp(c)) : t(events.length > 0 ? "plan.removedEvent" : "plan.removed", { number: c.item.number }),
@@ -505,7 +515,7 @@ export default function App() {
   /** Keeps a plan through a new ask: the ask counts as seen, as when planned again, and the item leaves the inbox. */
   const keepPlan = (c: Classified, day: string | null) => {
     const previous = todayOf(inbox.settings);
-    bulk(day ? t("plan.kept", { number: c.item.number, day }) : t("plan.keptToday", { number: c.item.number }), [todayStep(previous, { ...previous, plannedAt: { ...previous.plannedAt, [c.item.id]: new Date().toISOString() } })]);
+    bulk(day ? t("plan.kept", { number: c.item.number, day }) : t("plan.keptToday", { number: c.item.number }), [todayStep([c.item.id], previous, { ...previous, plannedAt: { ...previous.plannedAt, [c.item.id]: new Date().toISOString() } })]);
   };
   /** The plan choices: "Keep plan" while a new ask shows a planned item in the inbox, Today (T), the days, a picked date and its removal (X). With a calendar, a day opens the day view on it, and "Today at a time" (A) joins. */
   const planEntries = (c: Classified): MenuEntry[] => {
@@ -638,7 +648,7 @@ export default function App() {
     });
   /** P on an item: the plan choices open below its row, like the follow-up ones, or below the detail's Plan button. */
   const plan = (c: Classified, at?: DOMRect) =>
-    pinnable(c) ? setMenu({ entries: planEntries(c), fit: true, ...(at ? { x: at.left, y: at.bottom + 4 } : { ...paneCenter(), centered: true }) }) : actions.notify(t("noop.notPlannable", { number: c.item.number }));
+    pinnable(c) ? setMenu({ of: { id: c.item.id, kind: "plan" }, fit: true, ...(at ? { x: at.left, y: at.bottom + 4 } : { ...paneCenter(), centered: true }) }) : actions.notify(t("noop.notPlannable", { number: c.item.number }));
 
   /** Stops tracking an item for good, with undo; the settings list it for tracking again. */
   const untrack = (c: Classified) => {
@@ -660,8 +670,14 @@ export default function App() {
     rememberDemo(!isDemo());
     window.location.reload();
   };
-  const [menu, setMenu] = useState<{ entries: MenuEntry[]; x: number; y: number; centered?: boolean; centerX?: boolean; fit?: boolean } | null>(null);
+  const [menu, setMenu] = useState<{ entries?: MenuEntry[]; of?: { id: string; kind: "item" | "plan" }; x: number; y: number; centered?: boolean; centerX?: boolean; fit?: boolean } | null>(null);
+  /** A menu of one item is built from the item as it is now, not as it was when the menu opened. */
+  const menuItem = menu?.of ? inbox.classified.find((c) => c.item.id === menu.of?.id) : undefined;
   const [snoozeMenu, setSnoozeMenu] = useState<{ entry: Classified; x: number; y: number; centered?: boolean; centerX?: boolean } | null>(null);
+  const snoozeItem = snoozeMenu ? inbox.classified.find((c) => c.item.id === snoozeMenu.entry.item.id) : undefined;
+  // An item that left the list takes its menu along, so the menu cannot come back with it.
+  if (menu?.of && !menuItem) setMenu(null);
+  if (snoozeMenu && !snoozeItem) setSnoozeMenu(null);
   const [calendarFor, setCalendarFor] = useState<{ c: Classified; linked: CalendarEvent | null; day: string } | null>(null);
   const [pickingDate, setPickingDate] = useState<{ pick: (until: string) => void; day?: boolean } | null>(null);
   /** Runs one change on several items, with one toast and one undo for all of them. */
@@ -777,7 +793,7 @@ export default function App() {
   const unplanStep = (cs: Classified[], remove = false) => {
     const { focus, planned } = inbox.settings;
     const ids = cs.map((c) => c.item.id).filter((id) => focus.includes(id) || planned.some((p) => p.id === id));
-    return ids.length > 0 ? [todayStep(todayOf(inbox.settings), unplan(todayOf(inbox.settings), ids)), ...eventEnds(cs.filter((c) => ids.includes(c.item.id)), remove)] : [];
+    return ids.length > 0 ? [todayStep(ids, todayOf(inbox.settings), unplan(todayOf(inbox.settings), ids)), ...eventEnds(cs.filter((c) => ids.includes(c.item.id)), remove)] : [];
   };
   /** A time for the marked items: they wait until then. */
   const bulkLater = (until: string) => bulk(plural("marks.laterOne", "marks.later", open.length, { until: untilText(until) }), [...open.map((c) => statusStep(c, "snoozed", until)), ...unplanStep(open)]);
@@ -795,7 +811,7 @@ export default function App() {
     ...(open.some(assignable) ? [{ label: t("assign.action"), keys: "⌃A", icon: <UserPlus size={14} />, divided: true, onSelect: () => (assignAll(open), clearMarks()) }] : []),
     ...(open.some(leavable) ? [{ label: t("unassign.action"), keys: "⌃U", icon: <UserMinus size={14} />, onSelect: () => (leaveAll(open), clearMarks()) }] : []),
     ...(marked.some(hasFollowUp) || marked.some((c) => dated(c) !== null) ? [{ label: t(!marked.some((c) => dated(c) !== null) ? "reminder.remove" : !marked.some(hasFollowUp) ? "plan.remove" : "marks.removeWhen"), keys: "X", icon: <X size={14} />, onSelect: () => removeMarkedFollowUps(true) }] : []),
-    { label: marked.some(isUnread) ? t("menu.markRead") : t("menu.markUnread"), keys: "R", icon: marked.some(isUnread) ? <MailOpen size={14} /> : <Mail size={14} />, onSelect: () => (toggleRead(marked), clearMarks()) },
+    { label: marked.some((c) => isUnread(c)) ? t("menu.markRead") : t("menu.markUnread"), keys: "R", icon: marked.some((c) => isUnread(c)) ? <MailOpen size={14} /> : <Mail size={14} />, onSelect: () => (toggleRead(marked), clearMarks()) },
     { label: t("marks.clear"), divided: true, onSelect: () => setMarks(new Set()) },
   ];
   const refreshView = async (items: Classified[]) => {
@@ -808,7 +824,7 @@ export default function App() {
     const items = itemsOfView(view);
     if (items.length === 0) return;
     e.preventDefault();
-    const anyUnread = items.some(isUnread);
+    const anyUnread = items.some((c) => isUnread(c, view));
     const reading = view === "inbox" || view === "assigned";
     setMenu({
       entries: [
@@ -934,7 +950,7 @@ export default function App() {
     const several = marks.has(entry.item.id) && marked.length > 1;
     if (!several) clearMarks();
     selection.select(entry.item.id);
-    setMenu({ entries: several ? bulkEntries() : menuEntries(entry), x: e.clientX, y: e.clientY });
+    setMenu({ ...(several ? { entries: bulkEntries() } : { of: { id: entry.item.id, kind: "item" as const } }), x: e.clientX, y: e.clientY });
   };
   const copy = (text: string) =>
     navigator.clipboard.writeText(text).then(
@@ -962,15 +978,16 @@ export default function App() {
         () => ids.forEach((id) => classifiedById(id) && assignAll([classifiedById(id)!], true)),
       );
     for (const c of due) {
-      const { id, number, assignees, reasons, activities } = c.item;
-      inbox.updateItem(id, (item) => withSelfAssigned(item, me, new Date().toISOString()));
+      const { id, number, assignees, reasons } = c.item;
+      const at = new Date().toISOString();
+      inbox.updateItem(id, (item) => withSelfAssigned(item, me, at));
       void queueWrite(() =>
         ghToken()
           .then((token) => assignSelf(token, id))
           .then(
             (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
             (e) => {
-              inbox.updateItem(id, (item) => ({ ...item, assignees, reasons, activities }));
+              inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
               void inbox.logWriteFailure(id, "assign", String(e));
               actions.notify(t("assign.failed", { number, error: String(e) }));
             },
@@ -990,7 +1007,7 @@ export default function App() {
    */
   const leave = (c: Classified, quiet = false, keepStatus = false) => {
     if (!leavable(c)) return quiet ? undefined : actions.notify(t("unassign.nothing"));
-    const { id, number, assignees, reasons, activities } = c.item;
+    const { id, number, assignees, reasons } = c.item;
     const previous = inbox.statuses.get(id);
     const cleared = !keepStatus && leaveClears(previous);
     if (cleared) void inbox.clearStatus(id);
@@ -1022,7 +1039,7 @@ export default function App() {
         .then(
           (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
           (e) => {
-            inbox.updateItem(id, (item) => ({ ...item, assignees, reasons, activities }));
+            inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
             if (cleared) void inbox.restoreStatus(id, previous);
             void inbox.logWriteFailure(id, "unassign", String(e));
             actions.notify(t("unassign.failed", { number, error: String(e) }));
@@ -1142,7 +1159,8 @@ export default function App() {
   // Each morning "Today" keeps what is unfinished and takes in what was planned for it: checked on start and every few minutes while the app stays open.
   const { settings, saveSettings, ready, classified } = inbox;
   useEffect(() => {
-    if (!ready) return;
+    // Before the items are loaded, plans due today cannot move in and the day would be stamped without them.
+    if (!ready || classified.length === 0) return;
     const check = () => {
       const day = localDay();
       setToday(day);
@@ -1219,8 +1237,8 @@ export default function App() {
       x: onMarks ? () => removeMarkedFollowUps(true) : withCurrent(removeWhen),
       t: withCurrent((c) => (pinnable(c) ? toggleFocus(c) : actions.notify(t("noop.notPinnable", { number: c.item.number })))),
       p: withCurrent(plan),
-      u: onMarks ? () => toggleRead(marked) : withCurrent((c) => toggleRead([c])),
-      r: onMarks ? () => toggleRead(marked) : withCurrent((c) => toggleRead([c])),
+      u: onMarks ? () => (toggleRead(marked), clearMarks()) : withCurrent((c) => toggleRead([c])),
+      r: onMarks ? () => (toggleRead(marked), clearMarks()) : withCurrent((c) => toggleRead([c])),
       "mod+z": actions.undo,
       "mod+y": actions.redo,
       "ctrl+o": withCurrent((c) => void openUrl(c.item.url)),
@@ -1291,6 +1309,7 @@ export default function App() {
     void updateSettings((current) => ({ ...current, orbLooks: assignLooks(orbLogins, current.orbLooks) }));
   }, [inboxReady, updateSettings, orbLogins, orbLooks]);
 
+  const menuEntriesNow = menu?.entries ?? (menu?.of && menuItem ? (menu.of.kind === "plan" ? planEntries : menuEntries)(menuItem) : null);
   if (!inbox.ready) return <div className="boot" data-tauri-drag-region />;
 
   return (
@@ -1347,7 +1366,7 @@ export default function App() {
           sprint={sprints[bucket]}
           sprints={bucket === "assigned" ? plateSprints : bucket === "planned" ? plannedSprints : bucket === "snoozed" ? followUpSprints : authoredSprints}
           layout={byReturn ? layout : undefined}
-          onLayout={setLayout}
+          onLayout={(next) => (closePopup(), setLayout(next))}
           onSprint={(filter) => setSprints((current) => ({ ...current, [bucket]: filter }))}
           onToggleAll={(fold) => bars.setAll(tableGroups.map((g) => barKey(g.group)), fold)}
           hiddenBoards={inbox.settings.hiddenBoards}
@@ -1362,6 +1381,7 @@ export default function App() {
           onMove={moveTableBar}
           seen={inbox.seen}
           unreadMarks={inbox.unreadMarks}
+          movesUp={inbox.settings.movesUp}
           me={inbox.me ?? ""}
           search={search}
           onSearch={setSearch}
@@ -1389,7 +1409,7 @@ export default function App() {
           pinnedOn={inbox.settings.pinnedOn}
           today={today}
           layout={byReturn ? layout : undefined}
-          onLayout={setLayout}
+          onLayout={(next) => (closePopup(), setLayout(next))}
           onMenu={openMenu}
           counts={counts}
           onJump={setBucket}
@@ -1516,9 +1536,9 @@ export default function App() {
         </div>
       )}
       <Toast toast={actions.toast} />
-      {menu && <ContextMenu x={menu.x} y={menu.y} centered={menu.centered} centerX={menu.centerX} fit={menu.fit} entries={menu.entries} onClose={() => setMenu(null)} />}
+      {menu && menuEntriesNow && <ContextMenu x={menu.x} y={menu.y} centered={menu.centered} centerX={menu.centerX} fit={menu.fit} entries={menuEntriesNow} onClose={() => setMenu(null)} />}
       {snoozeMenu && (
-        <ContextMenu x={snoozeMenu.x} y={snoozeMenu.y} centered={snoozeMenu.centered} centerX={snoozeMenu.centerX} fit entries={snoozeEntries(snoozeMenu.entry)} onClose={() => setSnoozeMenu(null)} />
+        <ContextMenu x={snoozeMenu.x} y={snoozeMenu.y} centered={snoozeMenu.centered} centerX={snoozeMenu.centerX} fit entries={snoozeEntries(snoozeItem ?? snoozeMenu.entry)} onClose={() => setSnoozeMenu(null)} />
       )}
       {calendarFor && (
         <CalendarDay
