@@ -42,14 +42,17 @@ Independent of each other:
    part done.
 3. D on someone else's item files it: it sets handled-until; there is no stored "done" for it.
 4. The Done bar shows what was handled in the last 7 days and has no newer ask; a fixed number,
-   not `closedDays`, with no setting. The bar opens by click and on a jump to an item in it; no key
-   opens it.
+   not `closedDays`, with no setting. The bar opens by click, by Enter, Space or → on its selected
+   bar, and on a jump to an item in it; no view key opens it.
 5. A follow-up is a *when*, not a status: F and X leave the work fact alone, X leaves
    handled-until alone. An item has one when: the newer of plan and follow-up replaces the
    other.
 6. Planning (P, T) and a follow-up (F) count as handled and, when the item is open (the list's
    detail or a table's pop-up), as seen. A table row that is only selected stays unread, and so
    does an item marked unread by hand.
+7. News by someone else since I last saw an item makes it unread and moves it up: a post, a
+   review and, with "Other events", their events. An unassignment is no news, whoever it removes,
+   me included; it shows only in the activity log. An assignment of someone else stays news.
 
 ## Situations
 
