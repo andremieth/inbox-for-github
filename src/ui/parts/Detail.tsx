@@ -1,12 +1,12 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AtSign, Bell, CalendarDays, ChevronDown, ChevronRight, Link, RefreshCw, UserPlus, X } from "lucide-react";
-import { useEffect, useRef, useState, type Ref } from "react";
+import { Fragment, useEffect, useRef, useState, type Ref } from "react";
 import type { Classified } from "../../classify";
 import type { Reopen, Status, StatusChange, WriteFailure } from "../../model";
 import type { BotComments, DescriptionMode, OpenAt } from "../../store";
 import { findMention, isBot, latest, posts, sameLogin } from "../../timeline";
 import { explain } from "../explain";
-import { t } from "../i18n";
+import { t, tKey, tKeys } from "../i18n";
 import { backChange, shownActivities, shownHistory } from "../activities";
 import type { DoneAccess } from "../statusPlan";
 import { agoInSentence, firstLine, statusesFor, type LinkFormat } from "../labels";
@@ -93,7 +93,7 @@ export function Detail({ entry, ...rest }: Props) {
       <section className="detail detail-empty" data-tauri-drag-region>
         <p>{t("detail.nothingSelected")}</p>
         <p className="hint">
-          <kbd>↑</kbd> <kbd>↓</kbd> {t("detail.navHint")} · <kbd>⌘</kbd> <kbd>K</kbd> {t("detail.commandsHint")}
+          <kbd>↑</kbd> <kbd>↓</kbd> {t("detail.navHint")} · {tKeys(["⌘", "K"]).map((key) => <Fragment key={key}><kbd>{key}</kbd>{" "}</Fragment>)}{t("detail.commandsHint")}
         </p>
       </section>
     );
@@ -197,11 +197,11 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
             </div>
           )}
           {onAssignMe && !item.closed && !item.assignees.some((a) => sameLogin(a, me)) && (
-            <button className="chip-btn" title={`${t("assign.action")} (⌃A)`} aria-label={t("assign.action")} onClick={onAssignMe}>
+            <button className="chip-btn" title={`${t("assign.action")} (${tKey("⌃A")})`} aria-label={t("assign.action")} onClick={onAssignMe}>
               <UserPlus size={15} />
             </button>
           )}
-          <button className="chip-btn" title={`${t("detail.openOnGitHub")} (⌃O)`} aria-label={t("detail.openOnGitHub")} onClick={() => void openUrl(item.url)}>
+          <button className="chip-btn" title={`${t("detail.openOnGitHub")} (${tKey("⌃O")})`} aria-label={t("detail.openOnGitHub")} onClick={() => void openUrl(item.url)}>
             <GitHubMark />
           </button>
           {onOrca && (
@@ -209,7 +209,7 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
               <OrcaMark size={18} />
             </button>
           )}
-          <button className="chip-btn" title={`${t("action.refreshItem")} (⌃R)`} aria-label={t("action.refreshItem")} onClick={onReload} disabled={reloading}>
+          <button className="chip-btn" title={`${t("action.refreshItem")} (${tKey("⌃R")})`} aria-label={t("action.refreshItem")} onClick={onReload} disabled={reloading}>
             <RefreshCw size={15} className={reloading ? "spin" : undefined} />
           </button>
           <button className="chip-btn" title={`${t("menu.copyLink")} (C)`} aria-label={t("menu.copyLink")} onClick={() => onCopy("url")}>

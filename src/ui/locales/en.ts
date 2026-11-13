@@ -289,6 +289,8 @@ export const en = {
   "notify.summaryReason.reminder": "Self-mentions",
   "notify.summaryReason.update": "Updates",
   "notify.open": "Open",
+  "tray.open": "Open",
+  "tray.quit": "Quit",
 
   "history.done": "You marked it as done",
   "history.snoozed": "You set a follow-up",
@@ -352,6 +354,10 @@ export const en = {
   "keys.previous": "Previous item",
   "keys.help": "This help",
   "keys.or": "or",
+  "keys.windows.mod": "Ctrl",
+  "keys.windows.ctrl": "Alt",
+  "keys.windows.shift": "Shift",
+  "keys.windows.enter": "Enter",
   "keys.hint": "F on an item that waits offers the times again, to move its date; O sets it back to open. A double-click on a row opens the item: on GitHub in the lists, in a pop-up in the tables.",
   "help.basics.local": "Statuses, follow-ups, plans and your private notes exist only in this app. They are stored on this Mac and never sent to GitHub.",
   "help.basics.token": "The app signs in with the GitHub CLI (gh auth login). It writes to GitHub only when you send a comment, close or reopen an item, or assign or remove yourself (⌃A).",
@@ -919,3 +925,31 @@ export const en = {
 };
 
 export type Messages = Record<keyof typeof en, string>;
+
+/**
+ * The texts that read differently on Windows, where they take the place of those above: what
+ * names the Mac, macOS or a part of it, or the calendar in a text about something else. Shortcuts
+ * need no entry, `t` writes them out for Windows (see `ui/i18n.ts`); the calendar's own texts
+ * neither, as Windows does not show them.
+ */
+export const enWindows = {
+  "help.basics.local": "Statuses, follow-ups, plans and your private notes exist only in this app. They are stored on this PC and never sent to GitHub.",
+  "help.assigned.leaves": "Leaves when the item is closed or you are unassigned. D marks your part done, also while you are the only one: it moves to the bar Finished, keeps its plan, and comes back on news.",
+  "keys.plan": "Plan for a later day: then K keep the plan through a new ask, T today, N next workday, 1–7 a weekday (Monday 1 to Sunday 7, those still ahead this week), W next week, D pick a date, X remove the plan",
+  "settings.notificationsHint": "A Windows notification for each item that newly lands in your inbox. More than three at once arrive as one summary; a click opens the item.",
+  "settings.deliveryHint.immediately": "Every notification arrives as soon as the item does. Do not disturb in Windows still holds notifications back on its own; this app cannot break through it.",
+  "settings.dockBadge": "Badge on the taskbar icon",
+  "settings.loggingHint": "Debug writes one line per step: refreshes, rate limits, writes to GitHub, status changes. Verbose adds every request and why items sit where they do. No tokens or comment texts; the file stays on this PC, five files of 2 MB at most.",
+  "settings.resetHint": "Every item goes back to where it lands without a status of yours, so you can file everything anew. Only this PC changes, GitHub notices nothing; it cannot be undone. Notes and the history stay.",
+  "settings.repoFolderPlaceholder": "e.g. ~\\Repos",
+  "scopes.fix": "Run this in a terminal, then refresh:",
+  "note.placeholder": "Only on this PC, e.g. the next step",
+  "settings.orbsHint": "People without a picture of their own get a colored orb with their initial. No two people share an orb. Shuffle until you like it; the choice stays on this PC.",
+  "settings.intro.general": "How often the app asks GitHub, how much it loads, and what it keeps on this PC.",
+  "settings.intro.rules": "When items come back to you and what the app files on its own. Statuses stay on this PC.",
+  "settings.themeHint": "System follows the light or dark mode of Windows.",
+  "settings.tabToButtonsHint": "Tab and ⇧Tab walk the buttons of the main window, and Enter or Space presses the one in focus. Off, Tab does nothing there, its text fields included, and both keys always act on the selected row or bar. Dialogs and menus keep Tab either way.",
+  "orgs.localOnly": "Your selection is stored on this PC only.",
+} satisfies Partial<Messages>;
+
+export type WindowsMessages = Record<keyof typeof enWindows, string>;

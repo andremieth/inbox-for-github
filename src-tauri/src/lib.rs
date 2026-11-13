@@ -1,12 +1,18 @@
+#[cfg(target_os = "macos")]
 mod calendar;
+// Elsewhere the same commands exist as stand-ins, so the handler below lists them once.
+#[cfg(not(target_os = "macos"))]
+#[path = "calendar_stub.rs"]
+mod calendar;
+mod platform;
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 
 /// The log file is replaced by a fresh one past this size; the older ones shift down.
 const LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
@@ -15,14 +21,11 @@ const LOG_FILES: u32 = 5;
 /// Serializes writes, so a rotation never runs under another write.
 static LOG_LOCK: Mutex<()> = Mutex::new(());
 
-/// Apps started from Finder do not inherit the shell PATH, so `gh` is looked up in the usual install locations.
-const GH_CANDIDATES: [&str; 3] = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"];
-
 /// Returns the token of the active `gh` CLI login. The token is never persisted.
 #[tauri::command]
 fn gh_token() -> Result<String, String> {
-    for gh in GH_CANDIDATES {
-        if let Ok(output) = Command::new(gh).args(["auth", "token"]).output() {
+    for gh in platform::gh_candidates() {
+        if let Ok(output) = platform::command(gh).args(["auth", "token"]).output() {
             if output.status.success() {
                 return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
@@ -32,9 +35,6 @@ fn gh_token() -> Result<String, String> {
     Err("GitHub CLI `gh` not found. Install it and run `gh auth login`.".into())
 }
 
-/// Orca's command-line entry in its app bundle, see `docs/reference/orca.md`.
-const ORCA_CLI: &str = "/Applications/Orca.app/Contents/Resources/bin/orca";
-const ORCA_BUNDLE_ID: &str = "com.stablyai.orca";
 /// The only Orca commands the web view may run (`worktree set` for the display name, `repo add`
 /// for a checkout `repo_checkouts` found, `project setup-clone` to clone a repo Orca lacks, see
 /// `clones_from_github`); removing worktrees or repos and typing into terminals stays in Orca.
@@ -58,7 +58,7 @@ fn orca(args: Vec<String>) -> Result<String, String> {
     if !allowed || (args[0] == "project" && !clones_from_github(&args)) {
         return Err(format!("Orca command not allowed: {}", args.join(" ")));
     }
-    let output = Command::new(ORCA_CLI).args(&args).arg("--json").output().map_err(|e| e.to_string())?;
+    let output = platform::command(platform::orca_cli()?).args(&args).arg("--json").output().map_err(|e| e.to_string())?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if output.status.success() {
         return Ok(stdout);
@@ -83,10 +83,13 @@ struct Checkout {
 /// The repo folder with "~" expanded, and the git checkouts directly inside it that have an
 /// `origin` remote, read from each `.git/config`. Reads nothing else and goes one level deep.
 #[tauri::command(async)]
-fn repo_checkouts(folder: String) -> Result<(String, Vec<Checkout>), String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+fn repo_checkouts(app: tauri::AppHandle, folder: String) -> Result<(String, Vec<Checkout>), String> {
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    // Rebuilt from its parts, so a Windows path comes out with one kind of separator.
     let folder = match folder.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
+        Some(rest) if rest.is_empty() || rest.starts_with(std::path::is_separator) => {
+            home.join(rest.trim_start_matches(std::path::is_separator)).components().collect::<PathBuf>().to_string_lossy().into_owned()
+        }
         _ => folder,
     };
     let mut checkouts = Vec::new();
@@ -114,18 +117,17 @@ fn origin_url(config: &str) -> Option<String> {
     None
 }
 
-/// The Mac's locale with its region (`defaults read -g AppleLocale`, e.g. "en_US@rg=dezzzz"); the
-/// web view knows only the language, so dates would ignore System Settings › Language & Region.
+/// The system's locale with its region, in the system's own form (see `platform::system_locale`);
+/// the web view knows only the language, so dates would ignore the region the user set.
 #[tauri::command]
 fn system_locale() -> Result<String, String> {
-    let output = Command::new("defaults").args(["read", "-g", "AppleLocale"]).output().map_err(|e| e.to_string())?;
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    platform::system_locale()
 }
 
 /// Brings Orca's window to the front after a worktree or terminal was chosen there.
 #[tauri::command]
 fn orca_activate() -> Result<(), String> {
-    Command::new("open").args(["-b", ORCA_BUNDLE_ID]).spawn().map(|_| ()).map_err(|e| e.to_string())
+    platform::orca_activate()
 }
 
 fn log_name(index: u32) -> String {
@@ -136,7 +138,8 @@ fn rotated(dir: &Path, index: u32) -> std::path::PathBuf {
     dir.join(log_name(index))
 }
 
-/// Appends one line to `~/Library/Logs/<bundle id>/inbox.log` and rotates it by size.
+/// Appends one line to `inbox.log` in the app's log folder (`~/Library/Logs/<bundle id>/` on
+/// macOS, `%LOCALAPPDATA%\<bundle id>\logs\` on Windows) and rotates it by size.
 #[tauri::command]
 fn log_write(app: tauri::AppHandle, line: String) -> Result<(), String> {
     let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
@@ -153,12 +156,12 @@ fn log_write(app: tauri::AppHandle, line: String) -> Result<(), String> {
     writeln!(file, "{line}").map_err(|e| e.to_string())
 }
 
-/// Opens the log folder in the Finder, creating it first so there is always something to show.
+/// Opens the log folder in the Finder or the Explorer, creating it first so there is always something to show.
 #[tauri::command]
 fn log_reveal(app: tauri::AppHandle) -> Result<(), String> {
     let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Command::new("open").arg(&dir).spawn().map(|_| ()).map_err(|e| e.to_string())
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
 }
 
 /// The bundle identifier of earlier builds, whose folders are copied over on the first start.
@@ -225,17 +228,25 @@ fn copy_from_old_folder(dir: &Path, names: &[String]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Brings the hidden main window back, for a click on the Dock icon or on a notification.
-fn show_main_window(app: &tauri::AppHandle) {
+/// Brings the hidden or minimized main window back, for a click on the Dock icon, the tray icon or a notification.
+pub(crate) fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
     }
 }
 
+/// Puts the app's language on the tray menu of Windows; the web view sends its texts at start
+/// and when the language changes. Does nothing where there is no tray menu.
+#[tauri::command]
+fn tray_labels(app: tauri::AppHandle, open: String, quit: String) -> Result<(), String> {
+    platform::tray_labels(&app, &open, &quit)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    platform::builder()
         // Plugins set up in registration order, so the data is in place before the others read it.
         .plugin(tauri::plugin::Builder::<tauri::Wry>::new("data-migration").setup(|app, _| migrate_data_dir(app)).build())
         .plugin(tauri_plugin_notification::init())
@@ -253,18 +264,18 @@ pub fn run() {
             calendar::calendar_remove,
             calendar::calendar_settings,
             calendar::calendar_status,
-            gh_token, log_write, log_reveal, orca, orca_activate, repo_checkouts, system_locale
+            gh_token, log_write, log_reveal, orca, orca_activate, repo_checkouts, system_locale, tray_labels
         ])
         .setup(|app| {
             // The web view picks the item; the window must come forward first, also when hidden.
             let handle = app.handle().clone();
             app.notification().on_action(move |_| show_main_window(&handle))?;
             calendar::watch(app.handle().clone());
+            platform::setup(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {
-            // On macOS closing only hides the window, so snooze reminders keep arriving; ⌘Q quits.
-            #[cfg(target_os = "macos")]
+            // Closing only hides the window, so snooze reminders keep arriving; ⌘Q quits on macOS, the tray menu on Windows.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();

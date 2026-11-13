@@ -21,6 +21,7 @@ Notable tokens:
 | `--green-fill` | filled green under white text (comment button, switches); the light green in both themes |
 | `--orange` | dots and decoration only (GitHub Projects options, the dev stripe) |
 | `--radius-s/m/l` | 4, 6, 10 px |
+| `--sidebar` | the sidebar's ground: translucent over the window's vibrancy on macOS, `--bg` on Windows, which has none |
 
 ## Contrast
 
@@ -61,6 +62,10 @@ darkens instead.
 - `t(key, params)` for plain strings with `{name}` placeholders; `tRich(key, { name: <strong/> })`
   when a placeholder is markup.
 - English UI copy in sentence case; German uses "du".
+- A text that names the Mac, macOS or a part of it gets its Windows wording in `enWindows` and
+  `deWindows`, next to the dictionaries; `t()` prefers it on Windows. So does a text of the help
+  (`help.*`, `keys.*`) that mentions the calendar, which Windows does not have. The dictionaries'
+  own texts stay as they are.
 - A row's context line names the person who wants something from the viewer: who mentioned,
   asked for the review, pushed or assigned them (`rowContext`). Only when GitHub does not say,
   e.g. a commit without a linked user, does the line go without a name.
@@ -70,6 +75,13 @@ darkens instead.
 Shortcuts are registered in `App.tsx` with `useHotkeys` (`src/ui/useHotkeys.ts`). Keys are
 lowercased; `mod+` is ⌘, `shift+` is added with ⌘ and for letters. Single-key shortcuts do not
 fire while typing in a field.
+
+Each shortcut is bound once for both platforms. On Windows `mod+` is Ctrl and `ctrl+` is Alt
+(`modifiersOf` in `src/ui/platform.ts`); a key or click check reads the modifiers through it,
+never `metaKey` or `ctrlKey` itself. Shortcuts are written in the macOS notation everywhere: in
+the code, in `MenuEntry.keys`, in the help's table and in the dictionaries. `t()` writes them
+out for Windows ("⌘R" as "Ctrl+R"); a label a component builds itself goes through `tKey` or
+`tKeys`. See [`windows.md`](../reference/windows.md).
 
 Tab in the main window follows the "Tab reaches buttons" setting (`tabToButtons`), off by
 default as in most Mac apps: Tab then does nothing there, in its text fields neither, so it never

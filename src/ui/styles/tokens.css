@@ -1,7 +1,7 @@
 /* Light is the default; dark applies via the system or an explicit data-theme. The accent is a neutral near-text gray. */
 :root {
   --font: "Inter Variable", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --font-mono: "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, monospace;
   /* A mid tone that keeps 3:1 as a dot on light and dark backgrounds alike. */
   --orange: #dc5a1e;
 
@@ -147,4 +147,14 @@
 
 :root[data-env="dev"][data-theme="dark"] {
   --sidebar: color-mix(in srgb, var(--orange) 8%, rgb(25 26 29 / 0.8));
+}
+
+/* Windows (data-platform is set in main.tsx) has no vibrancy behind the sidebar, so it takes the window's ground, opaque:
+   --text-faint on it is 5.0:1 in light and 5.2:1 in dark, under a hovered entry 4.6:1 and 4.7:1; with the dev tint 4.6:1 and 4.8:1. */
+:root[data-platform="windows"] {
+  --sidebar: var(--bg);
+}
+
+:root[data-env="dev"][data-platform="windows"] {
+  --sidebar: color-mix(in srgb, var(--orange) 8%, var(--bg));
 }

@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CALENDAR_CHANGED, calendarAuthorized, calendars, calendarWriting, findEvents, type CalendarEvent } from "../calendar";
+import { CALENDAR_CHANGED, calendarAuthorized, calendars, calendarWriting, chosenCalendar, findEvents, type CalendarEvent } from "../calendar";
 import type { Settings } from "../store";
 import { localDay } from "./assignments";
 import { t } from "./i18n";
@@ -97,8 +97,8 @@ export function useCalendarSync(ready: boolean, settings: Settings, update: (cha
     let missing = new Set<string>();
     let retry = 0;
     const once = async () => {
-      const { calendarId, calendarEvents } = latest.current.settings;
-      const ids = Object.values(calendarEvents);
+      const calendarId = chosenCalendar(latest.current.settings);
+      const ids = Object.values(latest.current.settings.calendarEvents);
       if (calendarWriting()) return void (retry = window.setTimeout(run, RETRY));
       if (!calendarId || ids.length === 0 || !(await calendarAuthorized())) return;
       if (!(await calendars()).some((c) => c.id === calendarId)) return;

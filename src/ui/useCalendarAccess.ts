@@ -4,7 +4,7 @@ import { calendarAccess, calendarSettings, calendarStatus, type CalendarStatus }
 /** What the calendar notice needs: whether access is missing, and how, and the action that fixes it. */
 export interface CalendarAccess {
   /** Null while no calendar is chosen or access is there. */
-  missing: Exclude<CalendarStatus, "granted"> | null;
+  missing: "ask" | "denied" | null;
   /** While `fix` runs; the button waits for it. */
   busy: boolean;
   /** Shows macOS's permission dialog, or opens System Settings once access was declined. */
@@ -17,10 +17,10 @@ export interface CalendarAccess {
  * rebuild, which macOS takes for a new app (see `docs/reference/calendar.md`). Access granted in
  * System Settings resets the calendar store through `calendarAccess`, so the calendars show.
  *
- * @param calendarId  The "calendarId" setting; empty means the calendar is not used.
+ * @param calendarId  The calendar in use (`chosenCalendar`); empty means the calendar is not used.
  *
  * @example
- *   const calendar = useCalendarAccess(inbox.settings.calendarId);
+ *   const calendar = useCalendarAccess(chosenCalendar(inbox.settings));
  *   calendar.missing; // "ask" after a rebuild
  */
 export function useCalendarAccess(calendarId: string): CalendarAccess {
@@ -56,5 +56,5 @@ export function useCalendarAccess(calendarId: string): CalendarAccess {
       setBusy(false);
     }
   };
-  return { missing: calendarId && status !== "granted" ? status : null, busy, fix };
+  return { missing: calendarId && (status === "ask" || status === "denied") ? status : null, busy, fix };
 }

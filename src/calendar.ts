@@ -1,4 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Settings } from "./store";
+import { isWindows } from "./ui/platform";
+
+/**
+ * Whether the platform has a calendar the app can use. Only macOS does, through EventKit. On
+ * Windows the shell's calendar commands are stand-ins: the status is "unsupported", reads come
+ * back empty and writes fail (docs/reference/windows.md); nothing here calls them there.
+ */
+export const calendarSupported = () => !isWindows();
+
+/**
+ * The calendar plans go into: the "calendarId" setting, or none ("") where the platform has no
+ * calendar, whatever the setting holds. Every calendar feature asks this, not the setting, so
+ * one check switches them all off.
+ *
+ * @example
+ *   if (!chosenCalendar(settings)) return; // plans stay days without events
+ */
+export const chosenCalendar = (settings: Pick<Settings, "calendarId">) => (calendarSupported() ? settings.calendarId : "");
 
 /** A calendar of the macOS calendar store, as `calendar_list` in `src-tauri/src/calendar.rs` returns it. */
 export interface Calendar {
@@ -40,8 +59,8 @@ export const calendarAuthorized = () => invoke<boolean>("calendar_authorized");
 /** Whether the app may use the calendar, showing macOS's permission dialog the first time. */
 export const calendarAccess = () => invoke<boolean>("calendar_access");
 
-/** Where calendar access stands: granted, not asked yet, or declined (then only System Settings helps). */
-export type CalendarStatus = "granted" | "ask" | "denied";
+/** Where calendar access stands: granted, not asked yet, declined (then only System Settings helps), or unsupported where the platform has no calendar. */
+export type CalendarStatus = "granted" | "ask" | "denied" | "unsupported";
 
 /** The calendar access as it stands; never asks. */
 export const calendarStatus = () => invoke<CalendarStatus>("calendar_status");

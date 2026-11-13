@@ -113,6 +113,11 @@
   padding-left: 84px;
 }
 
+/* Windows keeps its native title bar, so nothing sits in this corner. */
+html[data-platform="windows"] .sidebar-top {
+  padding-left: 0;
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }
@@ -140,6 +145,14 @@
 .search-pill span {
   flex: 1;
   text-align: left;
+}
+
+/* Windows writes the shortcut out ("Ctrl+K"): on a sidebar dragged narrow the label is cut, where it would wrap out of the pill. */
+html[data-platform="windows"] .search-pill span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav {

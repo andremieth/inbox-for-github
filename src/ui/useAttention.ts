@@ -1,10 +1,11 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, onAction, registerActionTypes, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { useEffect, useRef, useState } from "react";
 import type { Classified } from "../classify";
 import { arrivals, askKey, notificationTitle, notifies, notifyReason, type NotifyReason } from "./attention";
+import { showBadge } from "./badge";
 import { notifiesLive, summarize, summaryDue, type Delivery } from "./delivery";
 import { t } from "./i18n";
+import { useWindowFocus } from "./useWindowFocus";
 
 /** What may notify: the main switch, the switch per reason, whether to notify while the window is in front, and when. */
 export interface NotifyOptions {
@@ -24,7 +25,8 @@ export interface Pending {
 const TICK_MS = 30_000;
 
 /**
- * Draws attention to what needs the viewer: the dock badge shows the number of unread items in
+ * Draws attention to what needs the viewer: the badge on the app's icon (the Dock's on macOS, an
+ * overlay on the taskbar button on Windows, see `showBadge`) shows the number of unread items in
  * the inbox and unread active assignments, falling as the viewer opens them, and a native notification fires for each item
  * that newly enters it.
  *
@@ -43,7 +45,7 @@ const TICK_MS = 30_000;
  * @param classified  The current classification; pass an empty list until the first fetch is done.
  * @param unread      Ids the badge counts: unread inbox items (`unreadInInbox`), unread active assignments and items marked unread by hand.
  * @param notify      What may notify and when (see `NotifyOptions`).
- * @param badge       Show the unread count on the dock icon; off clears it.
+ * @param badge       Show the unread count on the app's icon; off clears it.
  * @param onOpen      Called when the viewer clicks a notification, with its item's id, or null
  *                    for a summary. The shell brings the window to the front itself.
  * @param pending     What is collected for the next summary, as stored.
@@ -86,10 +88,12 @@ export function useAttention(classified: Classified[], unread: ReadonlySet<strin
     return () => void listener.then((l) => l.unregister());
   }, []);
 
+  // Also when the window comes back: Windows drops the overlay with the taskbar button of a hidden window.
+  const focused = useWindowFocus();
   useEffect(() => {
     if (classified.length === 0 && badge) return;
-    void getCurrentWindow().setBadgeCount(badge && unread.size > 0 ? unread.size : undefined);
-  }, [classified, unread, badge]);
+    void showBadge(badge && unread.size > 0 ? unread.size : undefined).catch(() => undefined);
+  }, [classified, unread, badge, focused]);
 
   useEffect(() => {
     if (classified.length === 0) return;

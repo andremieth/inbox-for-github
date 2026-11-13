@@ -139,6 +139,11 @@ describe("repoHome", () => {
   it("is null while Orca has no repo with a path", () => {
     expect(repoHome(ok({ repos: [{ id: "a" }] }))).toBeNull();
   });
+
+  it("reads Windows paths the same way", () => {
+    const repos = [{ id: "a", path: "C:\\u\\Repos\\a" }, { id: "b", path: "C:\\u\\Work\\b" }, { id: "c", path: "C:\\u\\Work\\c\\" }];
+    expect(repoHome(ok({ repos }))).toBe("C:\\u\\Work");
+  });
 });
 
 describe("addToOrca", () => {
@@ -166,6 +171,14 @@ describe("addToOrca", () => {
     answer([{ path: "/u/Repos/app", origin: "https://github.com/me/app.git" }], ["github.com/octo/app"]);
     await expect(addToOrca("octo/app", "~/Repos")).resolves.toEqual({ id: "id-1", how: "cloned", path: "/u/Repos/app" });
     expect(orcaCalls()).toEqual([cloneArgs("octo/app", "/u/Repos"), ["repo", "list"]]);
+  });
+
+  it("names the clone's folder with a backslash in a Windows repo folder", async () => {
+    answer([], ["github.com/octo/app"]);
+    const answered = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation((command, args) => (command === "repo_checkouts" ? Promise.resolve(["C:\\u\\Repos", []]) : answered(command, args)));
+    await expect(addToOrca("octo/app", "~\\Repos")).resolves.toEqual({ id: "id-1", how: "cloned", path: "C:\\u\\Repos\\app" });
+    expect(orcaCalls()[0]).toEqual(cloneArgs("octo/app", "C:\\u\\Repos"));
   });
 
   it("fails when Orca still lacks the repo afterwards", async () => {
@@ -212,5 +225,11 @@ describe("pathText", () => {
     expect(pathText("/Users/me/Repos")).toBe("~/Repos");
     expect(pathText("/Users/me")).toBe("~");
     expect(pathText("/opt/src")).toBe("/opt/src");
+  });
+
+  it("knows the home folder of a Windows path too", () => {
+    expect(pathText("C:\\Users\\me\\Repos")).toBe("~\\Repos");
+    expect(pathText("C:\\Users\\me")).toBe("~");
+    expect(pathText("D:\\src")).toBe("D:\\src");
   });
 });
