@@ -8,8 +8,8 @@
 > [here](https://github.com/andremieth/inbox-for-github/issues), everything else
 > [upstream](https://github.com/julian-wendt/inbox-for-github/issues). There is no Windows
 > release yet: `npm run build:local:windows` builds and installs the checkout, see
-> [`windows.md`](docs/reference/windows.md). The text below is upstream's and describes the
-> macOS app.
+> [`windows.md`](docs/reference/windows.md). How the two repositories work together is in
+> [`fork.md`](docs/fork.md). The text below is upstream's and describes the macOS app.
 
 A small macOS app that collects everything you are asked for on GitHub, so no request gets lost:
 issues assigned to you, mentions you have not answered yet, and pull requests waiting for your

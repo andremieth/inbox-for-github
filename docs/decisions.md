@@ -390,6 +390,12 @@ returns only through an ask newer than its handled-until. The reasons:
   in the shell), so that the macOS app can still be built from here. Most of what upstream
   changes is shared code, so its merges stay cheap only while both platforms live in the same
   files. macOS users take upstream's releases.
+- **Upstream is the app, this repository its Windows edition** (2026-11-11). Anything a Mac user
+  would notice goes upstream first, as a pull request from here; this repository carries the
+  Windows runtime, which upstream keeps out, and for a while what waits upstream. A second home
+  for general features would let the shared code drift apart: every merge would cost more, and
+  the Mac would not get them. The places in shared code where the platforms differ go upstream
+  too, so that those files are the same in both. See [`fork.md`](fork.md).
 - **Versions are upstream's** (2026-11-13). The version files, the manifest and the changelog
   are never changed here, and upstream's tags are the version tags. Two repositories that both
   tag a version with different content would make every bug report a riddle.

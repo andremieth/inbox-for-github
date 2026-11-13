@@ -75,6 +75,7 @@ handover what to look at there: the user checks every change in the running app.
 | touching "Open in Orca" or the Orca CLI calls | [`orca.md`](docs/reference/orca.md) |
 | touching the macOS calendar or EventKit | [`calendar.md`](docs/reference/calendar.md) |
 | working on Windows, or on anything that differs there (keys, texts, look, badge) | [`windows.md`](docs/reference/windows.md) |
+| deciding whether a change belongs here or upstream, opening a pull request upstream, merging upstream | [`fork.md`](docs/fork.md) |
 | asking what GitHub notifies about that the app does not | [`notifications.md`](docs/reference/notifications.md) |
 | writing or commenting code | [`code-style.md`](docs/conventions/code-style.md) |
 | changing UI, colors, texts or keyboard shortcuts | [`ui.md`](docs/conventions/ui.md) |

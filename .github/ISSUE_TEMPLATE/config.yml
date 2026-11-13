@@ -1,0 +1,6 @@
+# Issues here are for what concerns Windows or this fork; the link sends everything else upstream.
+blank_issues_enabled: true
+contact_links:
+  - name: Not about Windows?
+    url: https://github.com/julian-wendt/inbox-for-github/issues
+    about: A bug or an idea a Mac user would notice as well belongs upstream. This repository takes what concerns Windows.
