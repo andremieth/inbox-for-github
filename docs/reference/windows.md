@@ -155,6 +155,11 @@ What differs per system is in `src-tauri/src/platform/`: `mod.rs` names the item
 and `windows.rs` each define all of them, and only the host's file is compiled. The commands
 stay in `lib.rs` and call into it.
 
+Both files are compiled for every pull request: the workflow `Shell` runs `cargo check --locked`
+on a macOS and a Windows runner. Its first run was the first time this tree was compiled on
+macOS, and it passed (seen 2026-11-13). Running the macOS app built from here is under "Not
+verified yet".
+
 - **Dependencies per system.** The EventKit crates are macOS-only; Windows adds the `tray-icon`
   feature of `tauri`, `tauri-plugin-single-instance` and `windows-sys`. Checked 2026-11-10 with
   `cargo tree --locked --target x86_64-pc-windows-msvc` and `--target aarch64-apple-darwin`: the
@@ -297,6 +302,6 @@ What a person has to look at, and what no run has covered.
 - Orca's calls with Orca installed.
 - Quitting from the tray, and that the window comes back at its last size and place.
 - Uninstalling, and that the data stays.
-- That the shell still compiles on macOS: only its dependency tree was checked there.
+- The macOS app built from this tree: it compiles (see "The shell"), but nobody has started it.
 - A release: there is no workflow for a Windows release yet, only the local build
   ([`releasing.md`](../releasing.md)).
