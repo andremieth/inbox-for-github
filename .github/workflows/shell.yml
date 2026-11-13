@@ -1,0 +1,44 @@
+name: Shell
+
+# Compiles the Rust shell on the two platforms it runs on: macOS, which upstream builds, and
+# Windows, which this repository adds. `Checks` covers the web view on Linux and compiles no Rust,
+# so without this a change could break one platform's shell unseen from the other.
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: cargo check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    permissions:
+      contents: read # check out the repository
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # rustup reads the version, the components and the targets from rust-toolchain.toml.
+      - name: Set up Rust
+        run: rustup toolchain install
+
+      - name: Compile the shell
+        working-directory: src-tauri
+        run: cargo check --locked
