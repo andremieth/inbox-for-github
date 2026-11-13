@@ -1,4 +1,4 @@
-import type { Messages } from "./en";
+import type { Messages, WindowsMessages } from "./en";
 
 /** German texts; the type requires every key of the English source. */
 export const de: Messages = {
@@ -291,6 +291,8 @@ export const de: Messages = {
   "notify.summaryReason.reminder": "Selbst-Erwähnungen",
   "notify.summaryReason.update": "Aktualisierungen",
   "notify.open": "Öffnen",
+  "tray.open": "Öffnen",
+  "tray.quit": "Beenden",
 
   "history.done": "Du hast es als erledigt markiert",
   "history.snoozed": "Du hast es auf Wiedervorlage gelegt",
@@ -354,6 +356,10 @@ export const de: Messages = {
   "keys.previous": "Vorheriges Item",
   "keys.help": "Diese Hilfe",
   "keys.or": "oder",
+  "keys.windows.mod": "Strg",
+  "keys.windows.ctrl": "Alt",
+  "keys.windows.shift": "Umschalt",
+  "keys.windows.enter": "Eingabe",
   "keys.hint": "F auf einem Item in Wiedervorlage bietet erneut die Zeiten, um das Datum zu verschieben; O setzt es zurück auf Offen. Ein Doppelklick auf eine Zeile öffnet das Item: in den Listen auf GitHub, in den Tabellen in einem Pop-up.",
   "help.basics.local": "Status, Wiedervorlagen, Pläne und deine privaten Notizen gibt es nur in dieser App. Sie werden auf diesem Mac gespeichert und nie an GitHub gesendet.",
   "help.basics.token": "Die App meldet sich über die GitHub CLI an (gh auth login). Sie schreibt nur auf GitHub, wenn du einen Kommentar sendest, ein Item schließt oder wieder öffnest, oder dich selbst zuweist oder entfernst (⌃A).",
@@ -918,4 +924,25 @@ export const de: Messages = {
   "activity.changesRequestedSelf": "Du hast Änderungen angefordert",
   "activity.reviewedSelf": "Du hast ein Review abgegeben",
   "activity.dismissedSelf": "Du hast ein Review verworfen",
+};
+
+/** The German texts that read differently on Windows; the type requires every key of the English ones. */
+export const deWindows: WindowsMessages = {
+  "help.basics.local": "Status, Wiedervorlagen, Pläne und deine privaten Notizen gibt es nur in dieser App. Sie werden auf diesem PC gespeichert und nie an GitHub gesendet.",
+  "help.assigned.leaves": "Geht, sobald das Item geschlossen wird oder du nicht mehr zugewiesen bist. D setzt deinen Teil auf erledigt, auch wenn nur du zugewiesen bist: Es wandert in die Leiste „Fertig“, behält seinen Plan und kommt mit Neuem zurück.",
+  "keys.plan": "Für einen späteren Tag planen: dann K Plan trotz neuer Anfrage behalten, T heute, N nächster Werktag, 1–7 ein Wochentag (Montag 1 bis Sonntag 7, die diese Woche noch kommen), W nächste Woche, D Datum wählen, X Plan entfernen",
+  "settings.notificationsHint": "Eine Windows-Benachrichtigung für jedes Item, das neu in deiner Inbox landet. Mehr als drei auf einmal kommen als eine Sammelbenachrichtigung; ein Klick öffnet das Item.",
+  "settings.deliveryHint.immediately": "Jede Benachrichtigung kommt, sobald das Item da ist. „Nicht stören“ in Windows hält Benachrichtigungen weiterhin zurück; diese App kann das nicht durchbrechen.",
+  "settings.dockBadge": "Badge am Taskleistensymbol",
+  "settings.loggingHint": "Debug schreibt eine Zeile pro Schritt: Aktualisierungen, Ratenlimits, Schreibzugriffe auf GitHub, Statuswechsel. Ausführlich ergänzt jede Anfrage und warum Items dort stehen. Keine Tokens oder Kommentartexte; die Datei bleibt auf diesem PC, höchstens fünf Dateien à 2 MB.",
+  "settings.resetHint": "Jedes Item landet wieder dort, wo es ohne deinen Status hingehört, damit du alles neu einordnen kannst. Nur dieser PC ändert sich, GitHub merkt nichts; rückgängig machen geht nicht. Notizen und der Verlauf bleiben.",
+  "settings.repoFolderPlaceholder": "z. B. ~\\Repos",
+  "scopes.fix": "Führe das in einem Terminal aus und aktualisiere dann:",
+  "note.placeholder": "Nur auf diesem PC, z. B. der nächste Schritt",
+  "settings.orbsHint": "Personen ohne eigenes Bild bekommen einen farbigen Orb mit ihrem Anfangsbuchstaben. Kein Orb gehört zwei Personen. Mische, bis er dir gefällt; die Wahl bleibt auf diesem PC.",
+  "settings.intro.general": "Wie oft die App GitHub fragt, wie viel sie lädt und was sie auf diesem PC aufhebt.",
+  "settings.intro.rules": "Wann Items zu dir zurückkommen und was die App selbst einordnet. Status bleiben auf diesem PC.",
+  "settings.themeHint": "System folgt dem hellen oder dunklen Modus von Windows.",
+  "settings.tabToButtonsHint": "Tab und ⇧Tab wandern durch die Knöpfe des Hauptfensters, Enter oder Leertaste drückt den fokussierten. Aus tut Tab dort nichts, auch nicht in seinen Textfeldern, und beide Tasten wirken immer auf die ausgewählte Zeile oder Leiste. Dialoge und Menüs behalten Tab in jedem Fall.",
+  "orgs.localOnly": "Deine Auswahl wird nur auf diesem PC gespeichert.",
 };

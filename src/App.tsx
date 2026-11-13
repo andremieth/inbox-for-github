@@ -19,7 +19,7 @@ import { useOrbLogins } from "./ui/avatarKinds";
 import { setOrbLooks } from "./ui/orbLookStore";
 import { assignLooks } from "./ui/orbLooks";
 import { CalendarDay } from "./ui/parts/CalendarDay";
-import { findEvents, moveEvent, putEvent, removeEvent, writing, type CalendarEvent } from "./calendar";
+import { chosenCalendar, findEvents, moveEvent, putEvent, removeEvent, writing, type CalendarEvent } from "./calendar";
 import { onDay } from "./ui/calendarSlot";
 import { SnoozeDatePicker } from "./ui/parts/SnoozeDatePicker";
 import { followUpOn, untilText } from "./ui/snooze";
@@ -38,6 +38,7 @@ import { Resizer } from "./ui/parts/Resizer";
 import { Sidebar } from "./ui/parts/Sidebar";
 import { Toast } from "./ui/parts/Toast";
 import { useTheme } from "./ui/theme";
+import { useTrayLabels } from "./ui/useTrayLabels";
 import { useAttention, type Pending } from "./ui/useAttention";
 import { useColumnWidths } from "./ui/useColumnWidths";
 import { useHotkeys } from "./ui/useHotkeys";
@@ -94,6 +95,7 @@ export default function App() {
   const seenSettings = useSeenSettings();
   // Before any child renders, so every t() call of this render uses the chosen language.
   setLang(inbox.settings.language);
+  useTrayLabels();
   const [chosen, setChosen] = useState<View>("inbox");
   const views = VIEWS;
   const bucket = chosen;
@@ -234,7 +236,7 @@ export default function App() {
   // The local date, set with the rollover check rather than read during render; the rows' marks and Today's date follow it.
   const [today, setToday] = useState(localDay);
   const starts = useCalendarSync(inbox.ready, inbox.settings, inbox.updateSettings, actions.notify, (id) => inbox.classified.find((c) => c.item.id === id)?.item.number);
-  const links = inbox.settings.calendarId ? inbox.settings.calendarEvents : NO_LINKS;
+  const links = chosenCalendar(inbox.settings) ? inbox.settings.calendarEvents : NO_LINKS;
   const dated = useCallback((c: Classified) => withEvent(datedOf(c, focus, plans, today), links[c.item.id], starts), [focus, plans, today, links, starts]);
   const plannedAll = useMemo(() => scoped.filter((c) => datedOf(c, focus, plans, today) !== null), [scoped, focus, plans, today]);
   const doneIds = useMemo(
@@ -505,7 +507,7 @@ export default function App() {
     const when = dated(c);
     const kept = when && c.bucket === "inbox" ? datedText(when).text : null;
     const keepLabel = when?.kind === "today" ? t("plan.keepToday") : t("plan.keep", { day: kept ?? "" });
-    const calendar = !!inbox.settings.calendarId;
+    const calendar = !!chosenCalendar(inbox.settings);
     const pick = (d: string) => (calendar ? void openCalendar(c, d) : planFor(c, d, dayText(d)));
     return [
       ...(kept ? [{ label: keepLabel, hint: t("hint.plan.keep"), keys: "K", onSelect: () => keepPlan(c, when?.kind === "today" ? null : kept) }] : []),
@@ -556,7 +558,7 @@ export default function App() {
    * event, or moves a changed one back; redo creates or moves it again.
    */
   const addToCalendar = async (c: Classified, linked: CalendarEvent | null, day: string, start: number, end: number, title: string) => {
-    const draft = eventDraft(c, inbox.settings.calendarId, title, start, end);
+    const draft = eventDraft(c, chosenCalendar(inbox.settings), title, start, end);
     const changed = linked && (await putEvent({ ...draft, id: linked.id }));
     const saved = changed || (await putEvent(draft));
     if (!saved) throw new Error(t("calendarDay.failed"));
@@ -583,7 +585,7 @@ export default function App() {
   /** Moves the item's event to `day` at the same time of day, as a step; none without an event. Undo moves it back. */
   const eventMoves = (c: Classified, day: string): Step[] => {
     const id = inbox.settings.calendarEvents[c.item.id];
-    if (!id || !inbox.settings.calendarId) return [];
+    if (!id || !chosenCalendar(inbox.settings)) return [];
     let before: CalendarEvent | undefined;
     let moved: Promise<unknown> = Promise.resolve();
     return [
@@ -609,7 +611,7 @@ export default function App() {
   const eventEnds = (cs: Classified[], remove = true): Step[] =>
     cs.flatMap((c) => {
       let id = inbox.settings.calendarEvents[c.item.id];
-      if (!id || !inbox.settings.calendarId) return [];
+      if (!id || !chosenCalendar(inbox.settings)) return [];
       let removed: Promise<CalendarEvent | undefined> = Promise.resolve(undefined);
       return [
         {
@@ -1070,11 +1072,11 @@ export default function App() {
     void changeSettings((s) => ({ ...s, ...unplan(todayOf(s), closedPlans(s, (id) => closed.has(id))) }));
   }, [settings, classified, changeSettings]);
 
-  const calendarAccess = useCalendarAccess(settings.calendarId);
+  const calendarAccess = useCalendarAccess(chosenCalendar(settings));
 
   // A link whose item lost its pin or plan without a step of its own (closed, dropped overnight) goes; the event stays. Judged on the latest settings.
   useEffect(() => {
-    if (!ready || !settings.calendarId || orphanLinks(settings).length === 0) return;
+    if (!ready || !chosenCalendar(settings) || orphanLinks(settings).length === 0) return;
     void changeSettings((s) => {
       const orphans = orphanLinks(s);
       return orphans.length === 0 ? s : { ...s, calendarEvents: Object.fromEntries(Object.entries(s.calendarEvents).filter(([id]) => !orphans.some(([gone]) => gone === id))) };

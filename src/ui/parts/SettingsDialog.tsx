@@ -2,6 +2,7 @@ import { Bell, BellOff, Building2, CalendarDays, CircleUserRound, FolderGit2, Fo
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { calendarSupported } from "../../calendar";
 import type { Budget } from "../../github/client";
 import { revealLog, type LogLevel } from "../../log";
 import type { FeedbackMode } from "../../feedback";
@@ -12,7 +13,8 @@ import { RULES, ruleSwitches } from "../../rules";
 import type { BotComments, Settings } from "../../store";
 import { agoInSentence } from "../labels";
 import { NOTIFY_REASONS, notifies } from "../attention";
-import { t, type Lang, type MessageKey } from "../i18n";
+import { t, tKey, type Lang, type MessageKey } from "../i18n";
+import { modifiersOf } from "../platform";
 import type { Theme } from "../theme";
 import { useGutter } from "../useGutter";
 import { HOURS, MINUTES } from "../segments";
@@ -193,13 +195,13 @@ export function SettingsDialog({ settings, welcome, onSave, onClose, memberOrgs,
         transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && e.metaKey && welcome) start();
+          if (e.key === "Enter" && modifiersOf(e).mod && welcome) start();
         }}
       >
         {!welcome && (
           <nav className="settings-nav" aria-label={t("settings.sections")}>
             <h2>{t("settings.title")}</h2>
-            {SECTIONS.map(({ id, icon: Icon }) => (
+            {SECTIONS.filter(({ id }) => id !== "calendar" || calendarSupported()).map(({ id, icon: Icon }) => (
               <button key={id} className={`nav-item${active === id ? " on" : ""}`} onClick={() => setActive(id)}>
                 <Icon size={15} strokeWidth={1.8} />
                 <span>{t(`settings.section.${id}`)}</span>
@@ -558,7 +560,7 @@ export function SettingsDialog({ settings, welcome, onSave, onClose, memberOrgs,
         {welcome && (
           <div className="dialog-actions">
             <button className="btn primary" onClick={start}>
-              {t("settings.start")} <kbd>⌘↵</kbd>
+              {t("settings.start")} <kbd>{tKey("⌘↵")}</kbd>
             </button>
           </div>
         )}

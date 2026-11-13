@@ -5,16 +5,20 @@
  *
  * Needs no dependency: it drives Chrome or Edge headless over the DevTools protocol (Node 22+)
  * against the Vite dev server, which stands in for the Tauri window; Tauri's window API is stubbed.
- * The shots look like the installed app: the dev build's orange mark is removed, a neutral ground
- * per theme stands in for the window's vibrancy behind the translucent sidebar, and the traffic
- * lights macOS draws over the overlay title bar are painted where `tauri.conf.json` puts them.
+ * The shots look like the installed app: the dev build's orange mark is removed. For the macOS
+ * look a neutral ground per theme stands in for the window's vibrancy behind the translucent
+ * sidebar, and the traffic lights macOS draws over the overlay title bar are painted where
+ * `tauri.conf.json` puts them. The Windows look needs neither: its sidebar is opaque and its
+ * title bar is the system's, outside the page.
  *
  *   VITE_DEMO=1 npx vite &                       # serves http://localhost:1420
+ *   $env:VITE_DEMO = "1"; npx vite               # the same in PowerShell, in a terminal of its own
  *   node scripts/demo-screenshots.mjs --out demo-screenshots
  *
  * Options: --url <address> (default http://localhost:1420/), --out <folder>, --size 1400x900,
- * --langs en,de, --themes dark,light, --browser <path> (default: the first of Chrome, Edge,
- * Chromium found on macOS, or $BROWSER).
+ * --langs en,de, --themes dark,light, --platform mac|windows (default: the machine's; the Windows
+ * shots get "windows-" before their names), --browser <path> (default: the first of Chrome, Edge,
+ * Chromium found, or $BROWSER).
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -27,6 +31,8 @@ const out = args.out ?? "demo-screenshots";
 const [width, height] = (args.size ?? "1400x900").split("x").map(Number);
 const langs = (args.langs ?? "en,de").split(",");
 const themes = (args.themes ?? "dark,light").split(",");
+const platform = args.platform ?? (process.platform === "win32" ? "windows" : "mac");
+const { ProgramFiles = "C:\\Program Files", "ProgramFiles(x86)": ProgramFilesX86 = "C:\\Program Files (x86)", LOCALAPPDATA = "" } = process.env;
 const browser =
   args.browser ??
   process.env.BROWSER ??
@@ -34,6 +40,11 @@ const browser =
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    join(ProgramFiles, "Google\\Chrome\\Application\\chrome.exe"),
+    join(ProgramFilesX86, "Google\\Chrome\\Application\\chrome.exe"),
+    join(LOCALAPPDATA, "Google\\Chrome\\Application\\chrome.exe"),
+    join(ProgramFilesX86, "Microsoft\\Edge\\Application\\msedge.exe"),
+    join(ProgramFiles, "Microsoft\\Edge\\Application\\msedge.exe"),
   ].find(existsSync);
 if (!browser) throw new Error("No Chrome, Edge or Chromium found; pass --browser <path>.");
 
@@ -68,7 +79,7 @@ const TRAFFIC_LIGHTS = `(() => {
   document.body.append(lights);
 })()`;
 
-/** The shots of one run: what to press (keys of the app) or click, then the file name. Views follow the keys 1–5 (`VIEWS` in `src/ui/labels.ts`). */
+/** The shots of one run: what to press (keys of the app; `mod` is ⌘, or Ctrl in the Windows look) or click, then the file name. Views follow the keys 1–5 (`VIEWS` in `src/ui/labels.ts`). */
 const SHOTS = [
   { name: "inbox", keys: [{ key: "1" }] },
   { name: "inbox-detail", keys: [{ key: "1" }, ...Array(4).fill({ key: "ArrowDown" })] },
@@ -77,7 +88,7 @@ const SHOTS = [
   { name: "assigned", keys: [{ key: "4" }] },
   { name: "created-by-me", keys: [{ key: "5" }] },
   { name: "help", keys: [{ key: "1" }, { key: "?" }] },
-  { name: "settings", keys: [{ key: "1" }, { key: ",", metaKey: true }] },
+  { name: "settings", keys: [{ key: "1" }, { key: ",", mod: true }] },
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -105,8 +116,8 @@ try {
       waiting.set(id, resolve);
       socket.send(JSON.stringify({ id, method, params }));
     });
-  const press = ({ key, metaKey = false }) =>
-    send("Runtime.evaluate", { expression: `window.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, metaKey: ${metaKey}, bubbles: true }))` }).then(() => sleep(350));
+  const press = ({ key, mod = false }) =>
+    send("Runtime.evaluate", { expression: `window.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, ${platform === "windows" ? "ctrlKey" : "metaKey"}: ${mod}, bubbles: true }))` }).then(() => sleep(350));
 
   mkdirSync(out, { recursive: true });
   await send("Page.enable");
@@ -116,17 +127,17 @@ try {
 
   for (const lang of langs) {
     for (const theme of themes) {
-      await send("Emulation.setDefaultBackgroundColorOverride", { color: GROUND[theme] });
+      if (platform === "mac") await send("Emulation.setDefaultBackgroundColorOverride", { color: GROUND[theme] });
       for (const shot of SHOTS) {
-        await send("Page.navigate", { url: `${base}?lang=${lang}&theme=${theme}` });
+        await send("Page.navigate", { url: `${base}?lang=${lang}&theme=${theme}&platform=${platform}` });
         await sleep(5000);
         await send("Runtime.evaluate", { expression: "delete document.documentElement.dataset.env" });
-        await send("Runtime.evaluate", { expression: TRAFFIC_LIGHTS });
+        if (platform === "mac") await send("Runtime.evaluate", { expression: TRAFFIC_LIGHTS });
         for (const key of shot.keys) await press(key);
         if (shot.click) await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(shot.click)})?.click()` });
         await sleep(600);
         const image = await send("Page.captureScreenshot", { format: "png" });
-        const file = join(out, `${lang}-${theme}-${shot.name}.png`);
+        const file = join(out, `${platform === "windows" ? "windows-" : ""}${lang}-${theme}-${shot.name}.png`);
         writeFileSync(file, Buffer.from(image.result.data, "base64"));
         console.log(file);
       }

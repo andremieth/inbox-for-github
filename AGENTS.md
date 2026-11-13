@@ -47,6 +47,8 @@ npm run tauri dev                    # dev window (restart it after new settings
 VITE_DEMO=1 npm run tauri dev        # the same on a simulated GitHub with made-up data, for screenshots
 npm run tauri build -- --bundles app -- --locked # src-tauri/target/release/bundle/macos/Inbox for GitHub.app
 npm run build:local                  # the checkout as a prerelease, installed in /Applications
+npm run tauri build -- --bundles nsis -- --locked # Windows: src-tauri/target/release/bundle/nsis/…-setup.exe
+npm run build:local:windows          # Windows: the checkout as a prerelease, installed for the current user
 npm run typecheck                    # tsc --noEmit
 npm run lint                         # ESLint
 npm test                             # Vitest
@@ -72,6 +74,7 @@ handover what to look at there: the user checks every change in the running app.
 | running the app locally, restarting it, reading the local DB | [`local-development.md`](docs/reference/local-development.md) |
 | touching "Open in Orca" or the Orca CLI calls | [`orca.md`](docs/reference/orca.md) |
 | touching the macOS calendar or EventKit | [`calendar.md`](docs/reference/calendar.md) |
+| working on Windows, or on anything that differs there (keys, texts, look, badge) | [`windows.md`](docs/reference/windows.md) |
 | asking what GitHub notifies about that the app does not | [`notifications.md`](docs/reference/notifications.md) |
 | writing or commenting code | [`code-style.md`](docs/conventions/code-style.md) |
 | changing UI, colors, texts or keyboard shortcuts | [`ui.md`](docs/conventions/ui.md) |

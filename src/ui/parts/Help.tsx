@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { Reopen } from "../../model";
 import { bucketHelp } from "../explain";
-import { t, type MessageKey } from "../i18n";
+import { t, tKeys, type MessageKey } from "../i18n";
 import { DONE_DAYS } from "../doneBar";
 import { VIEWS } from "../labels";
 import { useGutter } from "../useGutter";
@@ -22,7 +22,7 @@ const GUIDE: { id: "inbox" | "assigned" | "authored" | "planned" | "snoozed" | "
   { id: "done", keys: ["f"] },
 ];
 
-/** "–" spans a range; a "/" between keys means "or", a "/" at the end is the slash key itself. */
+/** In the macOS notation, shown by `tKeys`. "–" spans a range; a "/" between keys means "or", a "/" at the end is the slash key itself. */
 const SHORTCUTS: { group: MessageKey; keys: [keys: string[], action: MessageKey][] }[] = [
   {
     group: "keys.group.navigate",
@@ -165,7 +165,7 @@ export function Help(props: { tab: HelpTab; reopenOn: Reopen; refreshMinutes: nu
                   {keys.map(([combo, action]) => (
                     <div key={action}>
                       <dt>{t(action)}</dt>
-                      <dd>{combo.map((k, i) => (k === "–" || (k === "/" && i !== combo.length - 1) ? <span key={i}>{k === "/" ? t("keys.or") : k}</span> : <kbd key={i}>{k}</kbd>))}</dd>
+                      <dd>{tKeys(combo).map((k, i, caps) => (k === "–" || (k === "/" && i !== caps.length - 1) ? <span key={i}>{k === "/" ? t("keys.or") : k}</span> : <kbd key={i}>{k}</kbd>))}</dd>
                     </div>
                   ))}
                 </dl>

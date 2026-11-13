@@ -5,11 +5,12 @@
  * Tauri's window API is stubbed, so the page needs no shell; no dependency, Node 22+.
  *
  *   VITE_DEMO=1 npx vite &                      # http://localhost:1420
+ *   $env:VITE_DEMO = "1"; npx vite              # the same in PowerShell, in a terminal of its own
  *   const app = await openDemo({ lang: "en" });
  *   await app.press("4");                       // Assigned to me
  *   await app.click("Fix rounding");            // by visible text, with a real mouse click
  *   await app.world((w, r) => w.comment(r.retries, "tobias-k", "@juniper ping"));
- *   await app.press("r", { meta: true });       // ⌘R: refresh from the simulated GitHub
+ *   await app.press("r", { mod: true });        // ⌘R, or Ctrl+R in the Windows look: refresh from the simulated GitHub
  *   console.log(await app.text());
  *   await app.close();
  */
@@ -18,10 +19,16 @@ import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const { ProgramFiles = "C:\\Program Files", "ProgramFiles(x86)": ProgramFilesX86 = "C:\\Program Files (x86)", LOCALAPPDATA = "" } = process.env;
 const BROWSERS = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  join(ProgramFiles, "Google\\Chrome\\Application\\chrome.exe"),
+  join(ProgramFilesX86, "Google\\Chrome\\Application\\chrome.exe"),
+  join(LOCALAPPDATA, "Google\\Chrome\\Application\\chrome.exe"),
+  join(ProgramFilesX86, "Microsoft\\Edge\\Application\\msedge.exe"),
+  join(ProgramFiles, "Microsoft\\Edge\\Application\\msedge.exe"),
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -64,10 +71,13 @@ const MODIFIERS = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
  * @param options.theme  "dark", "light" or "system".
  * @param options.size   [width, height], default [1400, 900].
  * @param options.skew   Milliseconds the clock runs ahead from the start, e.g. 3 * 3600_000.
+ * @param options.platform  "mac" or "windows": whose keys and look the page takes; the machine's by default.
  * @returns The helpers: press, click, rightClick, hover, type, text, html, evaluate, world,
  *          skew, shot, wait, errors, close.
  */
-export async function openDemo({ base = "http://localhost:1420/", lang = "en", theme = "dark", size = [1400, 900], skew = 0 } = {}) {
+export async function openDemo({ base = "http://localhost:1420/", lang = "en", theme = "dark", size = [1400, 900], skew = 0, platform = process.platform === "win32" ? "windows" : "mac" } = {}) {
+  /** The app's "mod" key as this platform holds it: ⌘ on macOS, Ctrl on Windows. */
+  const modKey = platform === "windows" ? "ctrl" : "meta";
   const browser = process.env.BROWSER ?? BROWSERS.find(existsSync);
   if (!browser) throw new Error("No Chrome, Edge or Chromium found; set $BROWSER.");
   const port = 9500 + Math.floor(Math.random() * 3000);
@@ -100,7 +110,7 @@ export async function openDemo({ base = "http://localhost:1420/", lang = "en", t
   await send("Page.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
   await send("Page.addScriptToEvaluateOnNewDocument", { source: PAGE_SETUP });
-  await send("Page.navigate", { url: `${base}?lang=${lang}&theme=${theme}` });
+  await send("Page.navigate", { url: `${base}?lang=${lang}&theme=${theme}&platform=${platform}` });
   const evaluate = async (expression) => {
     const response = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
     if (response.result.exceptionDetails) throw new Error(response.result.exceptionDetails.exception?.description ?? "evaluate failed");
@@ -132,7 +142,8 @@ export async function openDemo({ base = "http://localhost:1420/", lang = "en", t
   const mouse = async (target, { button = "left", modifiers = {}, clicks = 1, only } = {}) => {
     const at = typeof target === "object" ? target : await locate(target);
     if (!at) throw new Error(`Nothing to point at: ${JSON.stringify(target)}`);
-    const flags = Object.entries(modifiers).reduce((sum, [name, on]) => sum + (on ? MODIFIERS[name] : 0), 0);
+    const { mod = false, ...held } = modifiers;
+    const flags = Object.entries({ ...held, [modKey]: mod || held[modKey] }).reduce((sum, [name, on]) => sum + (on ? MODIFIERS[name] : 0), 0);
     await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y, modifiers: flags });
     if (only === "move") return;
     for (let click = 1; click <= clicks; click++) {
@@ -144,14 +155,15 @@ export async function openDemo({ base = "http://localhost:1420/", lang = "en", t
 
   return {
     errors,
-    /** Presses a key of the app (`KeyboardEvent.key`), e.g. press("d"), press("a", { ctrl: true }), press("z", { meta: true }), press("ArrowDown", { shift: true }). */
-    async press(key, { meta = false, ctrl = false, shift = false, alt = false, times = 1 } = {}) {
+    /** Presses a key of the app (`KeyboardEvent.key`), e.g. press("d"), press("z", { mod: true }) for ⌘Z or Ctrl+Z, press("ArrowDown", { shift: true }); the keys that write to GitHub take { ctrl: true } on macOS and { alt: true } on Windows. */
+    async press(key, { mod = false, meta = false, ctrl = false, shift = false, alt = false, times = 1 } = {}) {
+      const held = { meta, ctrl, [modKey]: mod || (modKey === "meta" ? meta : ctrl) };
       for (let i = 0; i < times; i++) {
-        await evaluate(`(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, metaKey: ${meta}, ctrlKey: ${ctrl}, shiftKey: ${shift}, altKey: ${alt}, bubbles: true, cancelable: true }))`);
+        await evaluate(`(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, metaKey: ${held.meta}, ctrlKey: ${held.ctrl}, shiftKey: ${shift}, altKey: ${alt}, bubbles: true, cancelable: true }))`);
         await sleep(250);
       }
     },
-    /** A real mouse click on the element with this visible text, aria-label, title, or `css:<selector>`; { meta, shift } for modifiers. */
+    /** A real mouse click on the element with this visible text, aria-label, title, or `css:<selector>`; { mod, shift } for modifiers. */
     click: (target, modifiers = {}, clicks = 1) => mouse(target, { modifiers, clicks }),
     rightClick: (target) => mouse(target, { button: "right" }),
     /** Moves the mouse over an element without clicking (hover). */

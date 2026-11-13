@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { useEffect, useRef, type ReactNode } from "react";
 import type { Classified } from "../../classify";
 import type { Status } from "../../model";
-import { t } from "../i18n";
+import { t, tKey } from "../i18n";
 import { sameLogin } from "../../timeline";
 import { statusesFor, statusHint, type LinkFormat, type View, type VIEWS } from "../labels";
 import { StatusIcon } from "./StatusIcon";
@@ -236,7 +236,7 @@ export function CommandPalette(props: Props) {
   );
 }
 
-/** One palette row; `hint` adds a short second line, which the search matches too. */
+/** One palette row; `hint` adds a short second line, which the search matches too. `keys` is in the macOS notation, shown by `tKey`. */
 function Item({ children, onSelect, icon, keys, value, hint }: { children: ReactNode; onSelect: () => void; icon?: ReactNode; keys?: string; value?: string; hint?: string }) {
   return (
     <Command.Item onSelect={onSelect} value={value}>
@@ -249,7 +249,7 @@ function Item({ children, onSelect, icon, keys, value, hint }: { children: React
       ) : (
         <span className="palette-label">{children}</span>
       )}
-      {keys && <kbd>{keys}</kbd>}
+      {keys && <kbd>{tKey(keys)}</kbd>}
     </Command.Item>
   );
 }

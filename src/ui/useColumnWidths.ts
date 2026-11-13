@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { isWindows } from "./platform";
 
 export type Column = "sidebar" | "list";
 
@@ -14,6 +15,19 @@ export const COLUMNS: Record<Column, Bounds> = {
 };
 
 const STORAGE_KEY = "column-widths";
+
+/** What the sidebar starts wider by on Windows, where the search field's shortcut is written out ("Ctrl+K") and takes that much more room than "⌘K". */
+const WINDOWS_SIDEBAR_EXTRA = 16;
+
+/**
+ * The width a column has before the viewer sized it, and after a reset.
+ *
+ * @example
+ *   initialWidth("sidebar"); // 228 on macOS, 244 on Windows
+ */
+export function initialWidth(column: Column): number {
+  return COLUMNS[column].initial + (column === "sidebar" && isWindows() ? WINDOWS_SIDEBAR_EXTRA : 0);
+}
 
 /**
  * Widths of the two resizable columns, in CSS pixels, remembered across restarts.
@@ -40,7 +54,7 @@ export function useColumnWidths() {
     });
   }, []);
 
-  const reset = useCallback((column: Column) => resize(column, COLUMNS[column].initial), [resize]);
+  const reset = useCallback((column: Column) => resize(column, initialWidth(column)), [resize]);
 
   return { widths, resize, reset };
 }
@@ -51,7 +65,7 @@ function clamp(column: Column, width: number): number {
 }
 
 function load(): Record<Column, number> {
-  const initial = { sidebar: COLUMNS.sidebar.initial, list: COLUMNS.list.initial };
+  const initial = { sidebar: initialWidth("sidebar"), list: initialWidth("list") };
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<Record<Column, unknown>>;
     for (const column of Object.keys(initial) as Column[]) {

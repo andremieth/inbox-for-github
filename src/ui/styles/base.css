@@ -22,6 +22,11 @@ body {
   user-select: none;
 }
 
+/* Windows has no vibrancy to show through: the body is the opaque ground. */
+html[data-platform="windows"] body {
+  background: var(--bg);
+}
+
 button,
 input,
 select,

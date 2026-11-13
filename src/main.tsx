@@ -6,8 +6,12 @@ import App from "./App";
 import { ErrorBoundary } from "./ui/parts/ErrorBoundary";
 import { noteInput } from "./ui/inputTrail";
 import { setRegion } from "./ui/i18n";
+import { isBrowserAccelerator, isWindows, platform } from "./ui/platform";
 import "./ui/styles/tokens.css";
 import "./ui/styles/base.css";
+
+// The styles branch on the platform: Windows has a native title bar and no vibrancy.
+document.documentElement.dataset.platform = platform();
 
 // The dev window gets a tinted sidebar, so it is never mistaken for the installed app.
 if (import.meta.env.DEV) document.documentElement.dataset.env = "dev";
@@ -30,6 +34,8 @@ if (!import.meta.env.DEV) {
   document.addEventListener("contextmenu", (e) => {
     if (!(e.target instanceof Element && e.target.closest("input, textarea, [contenteditable]"))) e.preventDefault();
   });
+  // WebView2 has browser commands on keys too (F5 reloads, Ctrl+P prints); the app's own handlers still run.
+  if (isWindows()) window.addEventListener("keydown", (e) => isBrowserAccelerator(e) && e.preventDefault(), true);
 }
 
 // Scrollbars show only while an area scrolls (see base.css); each fades out shortly after it stops.
@@ -45,7 +51,7 @@ document.addEventListener(
   true,
 );
 
-// Dates follow the Mac's region, which the web view does not know; without it they follow the language.
+// Dates follow the system's region, which the web view does not know; without it they follow the language.
 void invoke<string>("system_locale")
   .then(setRegion, () => undefined)
   .finally(() =>

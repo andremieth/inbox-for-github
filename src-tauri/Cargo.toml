@@ -26,11 +26,21 @@ serde_json = "=1.0.154"
 tauri-plugin-sql = { version = "=2.6.0", features = ["sqlite"] }
 tauri-plugin-notification = "=2.8.0"
 tauri-plugin-window-state = "=2.5.0"
+
+# The calendar (src/calendar.rs) talks to EventKit, which only macOS has.
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.5"
 block2 = "=0.6.2"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "block2", "NSArray", "NSDate", "NSEnumerator", "NSError", "NSNotification", "NSObject", "NSOperation", "NSString", "NSURL"] }
 objc2-event-kit = { version = "=0.3.2", default-features = false, features = ["std", "block2", "EKCalendar", "EKCalendarItem", "EKEvent", "EKEventStore", "EKObject", "EKSource", "EKTypes", "objc2-core-graphics"] }
 objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["std", "CGColor", "CGColorSpace"] }
+
+# What only the Windows shell needs (src/platform/windows.rs). The second tauri entry adds the
+# tray icon to the features above for Windows alone.
+[target.'cfg(windows)'.dependencies]
+tauri = { version = "=2.12.5", features = ["macos-private-api", "tray-icon"] }
+tauri-plugin-single-instance = "=2.5.5"
+windows-sys = { version = "=0.61.2", features = ["Win32_Globalization"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

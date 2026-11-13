@@ -3,5 +3,5 @@
 [toolchain]
 channel = "1.99.1"
 components = ["llvm-tools"]
-targets = ["aarch64-apple-darwin"]
+targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 profile = "minimal"

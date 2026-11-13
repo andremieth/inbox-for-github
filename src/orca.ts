@@ -88,11 +88,12 @@ export interface OrcaRepos {
  *
  * @example
  *   repoHome(output); // "/Users/me/Repos" for repos at /Users/me/Repos/a and /Users/me/Repos/b
+ *   repoHome(output); // "C:\Users\me\Repos" for repos at C:\Users\me\Repos\a and C:\Users\me\Repos\b
  */
 export function repoHome(json: string): string | null {
   const counts = new Map<string, number>();
   for (const { path } of reposOf(json)) {
-    const parent = path?.replace(/\/+$/, "").replace(/\/[^/]+$/, "");
+    const parent = path?.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]+$/, "");
     if (parent) counts.set(parent, (counts.get(parent) ?? 0) + 1);
   }
   let best: string | null = null;
@@ -165,13 +166,19 @@ export function createArgs(repoId: string, item: Pick<Item, "kind" | "number">):
 }
 
 /**
- * A folder as people read it, with the home folder as "~".
+ * A folder as people read it, with the home folder as "~", on macOS and on Windows.
  *
  * @example
  *   pathText("/Users/me/Repos"); // "~/Repos"
+ *   pathText("C:\\Users\\me\\Repos"); // "~\Repos"
  */
 export function pathText(path: string): string {
-  return path.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
+  return path.replace(/^(?:\/Users\/[^/]+(?=\/|$)|[A-Za-z]:\\Users\\[^\\]+(?=\\|$))/, "~");
+}
+
+/** `name` inside `folder`, joined the way the folder is written: with "\" in a Windows path. */
+function inFolder(folder: string, name: string): string {
+  return `${folder}${folder.includes("\\") ? "\\" : "/"}${name}`;
 }
 
 function orca(args: string[]): Promise<string> {
@@ -227,7 +234,7 @@ export async function addToOrca(repo: string, folder: string): Promise<Added> {
   orcaResult(await orca(checkout ? ["repo", "add", "--path", checkout.path] : cloneArgs(repo, home)));
   const id = orcaRepoFor((await loadOrcaRepos()).ids, repo);
   if (!id) throw new Error(`Orca has no ${repo} after adding it`);
-  return { id, how: checkout ? "added" : "cloned", path: checkout?.path ?? `${home}/${repo.split("/")[1]}` };
+  return { id, how: checkout ? "added" : "cloned", path: checkout?.path ?? inFolder(home, repo.split("/")[1]) };
 }
 
 /**

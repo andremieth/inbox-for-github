@@ -11,6 +11,8 @@ npm install
 npm run tauri dev
 ```
 
+On Windows the setup, and how far the port is, is in [`windows.md`](windows.md).
+
 ## When the dev window needs a restart
 
 Vite hot reload keeps component state, which breaks in these cases; stop and start

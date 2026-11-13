@@ -17,6 +17,44 @@ Test-PR, z. B. im Repo `inbox-for-github`.
       `~/Library/Logs/inbox-for-github/` mit den alten Einträgen. macOS fragt einmal neu nach
       Mitteilungen; eingeklappte Leisten und Sortierungen stehen wieder auf Standard.
 
+## Windows
+
+Was unter Windows anders ist (siehe [`docs/reference/windows.md`](docs/reference/windows.md)).
+Die übrigen Abschnitte gelten auch dort, mit Strg für ⌘ und Alt für ⌃.
+
+- [ ] `npm run tauri dev` öffnet ein Fenster mit der Titelleiste von Windows. Die Sidebar ist
+      deckend, links oben bleibt keine Lücke, und nichts scheint durch.
+- [ ] Die Liste lädt mit dem Token der `gh`-CLI. Datumsangaben folgen dem Regionalformat aus
+      Einstellungen › Zeit und Sprache, nicht der Anzeigesprache.
+- [ ] Strg+K öffnet die Palette, Strg+F die Suche, Strg+, die Einstellungen; Strg+R aktualisiert,
+      Strg+Umschalt+R lädt vollständig, Strg+Z und Strg+Y nehmen zurück und wiederholen.
+- [ ] Alt+A weist zu, Alt+U entfernt, Alt+O öffnet auf GitHub, Alt+R lädt das Item; kein
+      Systemton dabei. Dieselben Tasten wirken im offenen Rechtsklick-Menü.
+- [ ] Strg-Klick auf ein Repo in der Sidebar wählt mehrere aus. Im Kommentarfeld sendet
+      Strg+Eingabe; AltGr+Q schreibt dort „@“ und löst nichts aus.
+- [ ] Hilfe, Menüs, Palette und Tooltips schreiben Strg, Alt und Umschalt (englisch Ctrl, Alt,
+      Shift); nirgends steht ⌘, ⌃ oder ⇧, nirgends „Mac“ oder „Dock“.
+- [ ] Die Einstellungen haben keinen Abschnitt „Kalender“; P bietet Tage, aber keine Tagesansicht.
+- [ ] „Logdatei zeigen“ öffnet `%LOCALAPPDATA%\inbox-for-github\logs` im Explorer.
+- [ ] Schließen (X oder Alt+F4) versteckt das Fenster, das Symbol im Infobereich bleibt. Ein
+      Linksklick darauf zeigt das Fenster wieder; das Menü bietet „Öffnen“ und „Beenden“ in der
+      Sprache der App, und „Beenden“ beendet den Prozess.
+- [ ] Ein zweiter Start bei verstecktem Fenster holt das Fenster nach vorn; es läuft ein Prozess.
+- [ ] Ungelesenes zeigt eine rote Scheibe mit der Zahl am Taskleistensymbol, lesbar bei 100 %
+      und 150 % Skalierung. Sie verschwindet bei null und mit ausgeschaltetem Badge, und sie ist
+      wieder da, nachdem das Fenster versteckt war und aus dem Infobereich zurückkommt.
+- [ ] Das Dev-Fenster startet, während die installierte App läuft, und umgekehrt. Strg+Alt+D
+      setzt nichts auf Erledigt.
+- [ ] Installiert mit `npm run build:local:windows`: Die App startet danach von selbst, auch wenn
+      die alte Fassung versteckt lief. Status und Einstellungen sind noch da
+      (`%APPDATA%\inbox-for-github\tracker.db`).
+- [ ] In der installierten App: Eine Benachrichtigung trägt Name und Symbol der App, ein Klick
+      darauf oder auf „Öffnen“ zeigt das Item. Beim Aktualisieren blitzt kein Konsolenfenster auf.
+- [ ] In der installierten App laden F5 und Strg+R die Seite nicht neu und Strg+P druckt nicht,
+      auch nicht bei offenem Einstellungsdialog.
+- [ ] Mit Orca: W öffnet das Item dort, und Orca kommt nach vorn. Ein Repo-Ordner `~\Repos`
+      wird gefunden.
+
 ## Sidebar
 
 - [ ] Eine Liste ohne Überschrift und ohne Trennlinie: Inbox, Geplant, Wiedervorlage, Mir zugewiesen,

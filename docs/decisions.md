@@ -382,3 +382,50 @@ returns only through an ask newer than its handled-until. The reasons:
   cannot be reached by accident, and its people and repositories are fictional on purpose.
 - **`main` starts from the project's private predecessor, squashed per release.** Later changes
   go in as squash-merged PRs.
+
+## Windows
+
+- **Windows is added next to the macOS app, and nothing of macOS is removed** (2026-11-10). What
+  differs sits behind the platform (`src/ui/platform.ts` in the web view, target-specific code
+  in the shell), so that the macOS app can still be built from here. Most of what upstream
+  changes is shared code, so its merges stay cheap only while both platforms live in the same
+  files. macOS users take upstream's releases.
+- **Versions are upstream's** (2026-11-13). The version files, the manifest and the changelog
+  are never changed here, and upstream's tags are the version tags. Two repositories that both
+  tag a version with different content would make every bug report a riddle.
+- **On Windows ⌘ is Ctrl and ⌃ is Alt** (2026-11-10). Ctrl for ⌘ is what Windows users expect
+  (Ctrl+K, Ctrl+F, Ctrl+Z). The keys that write to GitHub or reload one item carry ⌃ on macOS,
+  and Ctrl is taken: ⌃R would collide with ⌘R, and Ctrl+A is "select all". Alt keeps the rule
+  "keys that write to GitHub carry a modifier of their own" and collides with nothing, as the
+  window has no menu bar for Alt to open.
+- **Shortcuts are written once, in the macOS notation** (2026-11-10). The code, the menus and
+  both dictionaries name them by the glyphs; Windows gets its spelling when a text is shown. A
+  second set of over twenty sentences per language, differing only in key names, would drift
+  apart and double every conflict with upstream's texts. The key names are texts themselves:
+  German writes "Strg", "Umschalt" and "Eingabe", as Windows does.
+- **No calendar on Windows, for now** (2026-11-10). Plans in the calendar exist because EventKit
+  reaches every account of the Mac without a login of the app's own. Windows has no such store:
+  its appointments API asks for a capability only a packaged app can declare, the new Outlook
+  does not support classic Outlook's object model, and Microsoft Graph needs an app registration
+  and a sign-in, which the macOS decision set out to avoid. Plans stay days without events; the
+  settings keys remain. See [`windows.md`](reference/windows.md#calendar).
+- **The Windows sidebar is the window's ground, opaque** (2026-11-10). Without vibrancy a
+  translucent sidebar would show a white or black window behind it. `--bg` keeps `--text-faint`
+  at 4.6:1 or better even under a hovered entry; the raised `--surface` fell below 4.5:1 there.
+- **The unread count is a red disc on the taskbar button** (2026-11-10). Windows has no badge on
+  an app icon, only an overlay of 16 points. Its red is fixed, since the taskbar is not the app's
+  surface and does not follow its theme; beyond 99 it is a plain disc, three digits being
+  unreadable at that size.
+- **Closing hides the window into the tray on Windows** (2026-11-10). For the reason it stays
+  running on macOS: reminders and summaries need the running app. Windows has no Dock to bring a
+  hidden window back, so the tray icon is the way back and its menu the way out. Starting the
+  app again is the other obvious way back, so a second start only shows the first one's window;
+  two instances would also write to one database.
+- **Windows keeps its native title bar** (2026-11-10). The overlay title bar, the transparency
+  and the vibrancy are macOS features. Their Windows counterpart, Mica or acrylic behind a
+  transparent window, can come later; Tauri's reference names workarounds it needs on a
+  decorated window.
+- **The Windows installer is unsigned for now** (2026-11-10). A certificate costs money or an
+  application (Azure Artifact Signing, SignPath for open source); until one is there, SmartScreen
+  warns once per download; [`windows.md`](reference/windows.md#installer-and-releases) says how
+  to get past it.

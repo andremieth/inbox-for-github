@@ -4,6 +4,54 @@ A release is a decision, not a side effect of a merge: a workflow prepares it, y
 merging a PR, and a macOS runner builds the app. The tag `v<version>` only exists once that build
 passed, since a published tag cannot be taken back.
 
+## This repository: the Windows edition
+
+The steps under "Releasing" are upstream's and describe its macOS build. They do not run here:
+this repository is a fork that follows upstream's versions. It never changes the version files,
+`.release-please-manifest.json` or `CHANGELOG.md`, upstream's tags are the version tags, and the
+`Release` workflow, which is upstream's file, is switched off in the repository's Actions
+settings.
+
+There is no Windows release yet. A prerelease of the checkout: `npm run build:local:windows`
+builds the installer, installs it for the current user and starts the app (`-- --dry-run` only
+prints the version). It follows the version rule of `build:local` below and counts from
+upstream's last tag. The installer is unsigned, see
+[`windows.md`](reference/windows.md#installer-and-releases).
+
+### Merging upstream
+
+`git fetch upstream`, merge `upstream/main` on a branch and open a PR in this repository. Set the
+remote up once per clone, so that nothing is ever pushed there by accident:
+
+```sh
+git remote add upstream https://github.com/julian-wendt/inbox-for-github.git
+git remote set-url --push upstream no_push
+```
+
+Merge that PR with a merge commit (`gh pr merge --merge`), not a squash, as the one exception
+to the squash merges of `CONTRIBUTING.md`: only then are
+upstream's commits ancestors of `main`, and the next merge brings just what is new. After a
+squash the next merge starts from the old base again and conflicts wherever this repository
+changed what upstream wrote (seen 2026-11-10 with a branch stacked on a squashed one). The
+"Sync fork" button is not a way either: its "Discard commits" would drop everything this
+repository adds, which the ruleset on `main` refuses.
+
+What needs a look in upstream's changes, as Windows keeps it apart:
+
+- A new key in the window entry of `tauri.conf.json` does not reach Windows, whose
+  `tauri.windows.conf.json` replaces that entry as a whole. Add it there when Windows supports
+  it; [`windows.md`](reference/windows.md#the-shell) lists what was left out and why.
+- A new text that names the Mac or, in the help, the calendar needs its Windows wording;
+  `npm test` fails until it has one.
+- A changed version of `tauri` in `src-tauri/Cargo.toml` needs the same version in the entry
+  under `[target.'cfg(windows)'.dependencies]`, and `Cargo.lock` written once more by a
+  `cargo check` without `--locked`.
+
+The version files, the manifest and the changelog come in from upstream as they are, its
+release commits included. After merging one of its releases, push its tag here as well
+(`git push origin v<version>`): the local build counts from it. That copies a tag upstream
+made; it tags nothing of this repository's own, which stays ruled out.
+
 ## Releasing
 
 1. **Merge your PRs into `main` as usual.** The `Release` workflow (`.github/workflows/release.yml`,

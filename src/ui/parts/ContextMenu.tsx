@@ -1,5 +1,6 @@
 import { Check, ChevronRight } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { tKey } from "../i18n";
 import { noteInput } from "../inputTrail";
 import { keyMatches } from "../keyMatch";
 
@@ -9,7 +10,7 @@ export interface MenuEntry {
   /** A short second line for entries whose label does not say everything. */
   hint?: string;
   icon?: ReactNode;
-  /** Shortcut shown on the right; pressing it while the menu is open runs the entry. */
+  /** Shortcut shown on the right, in the macOS notation ("D", "⌃A"; Windows shows it by `tKey`); pressing it while the menu is open runs the entry. */
   keys?: string;
   checked?: boolean;
   onSelect?: () => void;
@@ -202,7 +203,7 @@ function MenuRow(props: { entry: MenuEntry; slot: boolean; active: boolean; open
         {entry.label}
         {entry.hint && <small className="menu-hint">{entry.hint}</small>}
       </span>
-      {entry.keys && <kbd>{entry.keys}</kbd>}
+      {entry.keys && <kbd>{tKey(entry.keys)}</kbd>}
       {entry.items && <ChevronRight size={14} className="menu-more" />}
     </button>
   );
