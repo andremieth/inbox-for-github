@@ -84,6 +84,11 @@ Die übrigen Abschnitte gelten auch dort, mit Strg für ⌘ und Alt für ⌃.
 - [ ] ⌘R: Icon dreht sich mit kleinem Quadrat. Klick darauf stoppt, die Liste bleibt, unten
       steht wieder „Zuletzt aktualisiert …“.
 - [ ] ⌃R mit ausgewähltem Item: nur dieses Item lädt neu (1 Punkt, mit Boards 2), der Button im Detail-Kopf dreht sich, die Liste bleibt stehen.
+- [ ] Detail-Kopf von links: Status-Umschalter, 💡, dann mit kleinem Abstand GitHub und Orca, Link und Aktualisieren,
+      „Mich zuweisen“ (nur wenn möglich) und im Pop-up ×. Erscheint „Mich zuweisen“, verrutscht davor nichts.
+- [ ] Detail-Spalte schmaler ziehen: unter etwa 700 px wandern GitHub bis „Mich zuweisen“ in das „…“-Menü (mit Tasten
+      rechts), 💡 und × bleiben; unter etwa 560 px zeigt der Umschalter nur Icons, Tooltips nennen den Status.
+      „org/repo #Nummer“ steht immer ganz über dem Titel.
 - [ ] Rechtsklick auf eine Ansicht: Inbox und „Mir zugewiesen“ bieten „Alle als gelesen markieren“
       (danach „… als ungelesen“; ⌘Z holt es zurück) und „Items dieses Views aktualisieren“, die
       anderen Ansichten nur das Aktualisieren. Das Aktualisieren lädt alle Items der Ansicht
@@ -140,6 +145,15 @@ Die übrigen Abschnitte gelten auch dort, mit Strg für ⌘ und Alt für ⌃.
 - [ ] Senden ohne WLAN: Text bleibt, darunter „Nicht gesendet: …“.
 - [ ] Entwurf bleibt beim Wechsel zwischen Items erhalten.
 
+## Reaktionen (Test-Issue)
+
+- [ ] Unter einem Kommentar und unter der aufgeklappten Beschreibung: je Emoji eine Pille mit Zahl, die eigene blau umrandet; Tooltip „Du und 2 weitere …“.
+- [ ] Klick auf eine Pille nimmt die eigene Reaktion dazu oder zurück, die Zahl springt sofort; auf GitHub steht danach dasselbe.
+- [ ] Smiley öffnet die acht Emoji in derselben Zeile; Auswahl, Esc oder Klick daneben schließt sie.
+- [ ] Jede Reaktion zeigt „#12: mit 👍 reagiert“; ⌘Z nimmt sie auch auf GitHub zurück, ⌘Y setzt sie wieder.
+- [ ] Reaktion ohne WLAN: die Pille springt zurück, Hinweis „Die Reaktion auf #12 konnte auf GitHub nicht gespeichert werden …“, im Verlauf „Reagieren auf GitHub fehlgeschlagen“.
+- [ ] Eine Reaktion auf eine Erwähnung lässt das Item in der Inbox; eine fremde Reaktion macht nichts ungelesen und meldet nichts.
+
 ## Schließen und Wiedereröffnen (Test-Issue, Test-PR)
 
 - [ ] „Issue schließen“ und über den Pfeil „Als nicht geplant schließen“; auf GitHub den Grund
@@ -159,12 +173,13 @@ Die übrigen Abschnitte gelten auch dort, mit Strg für ⌘ und Alt für ⌃.
 - [ ] Die Status tragen Icons statt farbiger Ringe: Offen ein grauer Ring, Wiedervorlage ein pinker Kreispfeil
       (↻), Erledigt ein grüner Haken; so im Detail-Umschalter, im Kontextmenü, in ⌘K und im Protokoll,
       in Hell und Dunkel gut erkennbar.
-- [ ] Item mit F auf Wiedervorlage legen, mit O wieder öffnen: jedes Mal eine Zeile in den Aktivitäten (D auf einem Item anderer legt es nur ab und schreibt keine), sobald dazwischen etwas passiert ist (ein Beitrag, ein Review, ein Ereignis); ein Status, der gleich ersetzt wird, gilt als Korrektur und fehlt dort.
+- [ ] Item mit F auf Wiedervorlage legen, mit O wieder öffnen: jedes Mal eine Zeile in den Aktivitäten, die Wiedervorlage mit Datum und „mit Erinnern“, sobald dazwischen etwas passiert ist (ein Beitrag, ein Review, ein Ereignis, eine Rückkehr in die Inbox); ein Status, der gleich ersetzt wird, gilt als Korrektur und fehlt dort.
+- [ ] P, T, „Plan behalten“, X auf Plan oder Wiedervorlage und D (ablegen) schreiben je eine Zeile; F und gleich danach X schreibt keine; ein Plan, der eine Wiedervorlage ersetzt, nur die Planzeile. Eine fällige Wiedervorlage kommt fett mit Punkt zurück und schreibt „Zurück in der Inbox: deine Wiedervorlage ist fällig“, die nach D stehen bleibt.
 - [ ] Eine Wiedervorlage, deren Datum vorbei ist, auch auf einer Zuweisung: das Item steht in der Inbox („Deine Wiedervorlage ist … fällig geworden“, als erste Zeile der Erklärung), im Verlauf „Zurück in der Inbox: deine Wiedervorlage ist fällig“, und es kommt keine Benachrichtigung. D legt es ab, die Verlaufszeile verschwindet; ins Protokoll wird nichts geschrieben.
 - [ ] D auf einer Zeile der Leiste „Erledigt“ ändert nichts und fehlt im Menü; D in „Mir zugewiesen“ auf einem Item mit fertigem Teil zeigt „Dein Teil ist schon erledigt; O nimmt ihn zurück“; D in der Wiedervorlage beendet sie („Wiedervorlage entfernt“, das Item kehrt zurück); F auf einem in Wiedervorlage öffnet die Zeiten,
       eine neue Zeit verschiebt das Datum. Zurück auf Offen geht nur mit O (oder über das Menü).
-- [ ] ⌃O öffnet das Item auf GitHub (auch Kontextmenü, ⌘K, Button im Detail); O allein öffnet
-      nichts im Browser. Im Kommentarfeld tut ⌃O nichts an der App.
+- [ ] G öffnet das Item auf GitHub (auch Kontextmenü, ⌘K, Button im Detail); O öffnet
+      nichts im Browser. Im Kommentarfeld tippt G nur den Buchstaben.
 - [ ] ⌘Z nimmt die letzte Änderung exakt zurück und sagt, welche („Rückgängig: #5 → Erledigt“),
       und mit jedem weiteren ⌘Z geht es die Kette weiter zurück, bis zu fünfzig Änderungen; danach
       steht dort „Nichts zum Rückgängigmachen“. ⌘Y macht Zurückgenommenes in der alten Reihenfolge
@@ -244,7 +259,7 @@ Die übrigen Abschnitte gelten auch dort, mit Strg für ⌘ und Alt für ⌃.
 
 - [ ] Tasten wirken nur auf die Auswahl, nie auf die Zeile unter der Maus.
 - [ ] Ohne Auswahl (Pop-up per Klick geöffnet und geschlossen, Esc, oder eine Leiste ausgewählt) melden D, F, O, X,
-      T, P, U, R, W, C, ⌃A, ⌃U, ⌃O und ⌃R per Toast „Kein Item ausgewählt“; in einer leeren Ansicht kommt kein Toast.
+      T, P, U, R, W, G, C, ⌃A, ⌃U und ⌃R per Toast „Kein Item ausgewählt“; in einer leeren Ansicht kommt kein Toast.
 - [ ] Einstellungen › Darstellung › Listen › „Tab erreicht Knöpfe“ aus (Standard): Tab und ⇧Tab tun im Hauptfenster
       nichts, auch nicht in der Suche oder im Kommentarfeld. An: Tab erreicht die Knöpfe; Enter und Leertaste drücken den fokussierten Knopf (z. B. Sortierung), statt
       das Pop-up zu öffnen. Nach einem Mausklick auf einen Knopf öffnen Enter und Leertaste wieder das Pop-up der Auswahl.
@@ -560,6 +575,19 @@ Die übrigen Abschnitte gelten auch dort, mit Strg für ⌘ und Alt für ⌃.
 - [ ] Fenster mit ⌘W oder dem roten Knopf schließen: die App bleibt im Dock, Klick aufs Icon holt
       das Fenster an derselben Stelle zurück. Eine neue Erwähnung meldet sich auch
       bei geschlossenem Fenster. ⌘Q beendet die App.
+- [ ] F vor 14 Uhr bietet „Heute Nachmittag“ (A) unter „Erinnern“, ab 14 Uhr fehlt es; A setzt die
+      Wiedervorlage auf heute 14:00, beim nächsten F ist der Eintrag abgehakt.
+- [ ] F auf einem Item, R schaltet „Erinnern“ an (Haken, Menü bleibt offen), dann eine Zeit in zwei
+      Minuten über D: zur Zeit kommt eine Mitteilung „Deine Wiedervorlage ist fällig“, auch bei
+      Fenster vorn und im Modus „Nur Zusammenfassungen“, und das Item steht oben in der Leiste
+      „Erinnerungen“ über den Zeitgruppen. Ohne „Erinnern“ dasselbe still und ohne Leiste.
+- [ ] Auf einer Wiedervorlage mit Datum ohne „Erinnern“: F, R, Esc. Die Glocke steht sofort statt
+      des Pfeils, das Datum bleibt; F, R, Esc nimmt sie wieder weg.
+- [ ] Im Menü „Optionen“ der Mitteilung: „In 1 Stunde“, vor 14 Uhr „Heute Nachmittag“, „Nächster
+      Arbeitstag“; jede setzt die Wiedervorlage neu mit „Erinnern“, das Item verlässt die Leiste.
+      Ein Klick auf „Optionen“ selbst oder „Öffnen“ öffnet das Item.
+- [ ] Erinnerung fällig, während die App mit ⌘Q beendet ist: beim nächsten Start eine Mitteilung,
+      beim Start danach keine mehr.
 - [ ] Items mit Wiedervorlage-Datum zeigen rechts in der Zeile statt des Alters, wann sie
       zurückkommen (Uhrzeit heute, Wochentag, sonst Datum); Tooltip „Wiedervorlage Mo., 26. Okt., 09:00“.
 - [ ] Im Detail steht bei solchen Items ein Chip mit rosa Kreispfeil (↻), Wochentag, Datum und Uhrzeit (24 h)

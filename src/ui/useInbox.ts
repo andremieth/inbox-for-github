@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ghToken } from "../github/token";
-import { classify, type Classified } from "../classify";
+import { ASK_RULES_DEFAULT, classify, type Classified } from "../classify";
 import { lastBudget, missingScopes, pointsSpent, RateLimitError, tokenScopes, type Budget, type Scope } from "../github/client";
-import { addRequested, canDelta, covers, decodeScope, DELTA_OVERLAP_MS, encodeScope, findTransfers, mergeDelta, mergeReloaded, transferCandidates, unseenReviews, widensClosed, withdrawReviews, withinClosedWindow, type Coverage } from "../github/delta";
+import { addRequested, canDelta, covers, decodeScope, DELTA_OVERLAP_MS, encodeScope, findTransfers, livePending, mergeDelta, mergeReloaded, trackPending, transferCandidates, withPending, unseenReviews, widensClosed, withdrawReviews, withinClosedWindow, type Coverage, type PendingChange } from "../github/delta";
 import { fetchBoards } from "../github/boards";
-import { embedAvatar, fetchItem, fetchItems, fetchItemsById, fetchReviewIds, fetchViewer } from "../github/fetch";
+import { embedAvatar, fetchItem, fetchItems, fetchItemsById, fetchReviewIds, fetchViewer, SEARCH_STOP } from "../github/fetch";
 import { repoVisible } from "../repoFilter";
 import { recentInput } from "./inputTrail";
 import { snapshotOf } from "../handoff";
 import { sameLogin } from "../timeline";
-import type { Handoff, Item, Org, Status, StatusChange, StoredStatus, StatusExtra, WriteFailure } from "../model";
+import type { Handoff, Item, LogAs, LogEvent, Org, Status, StatusChange, StoredStatus, StatusExtra, WriteFailure } from "../model";
 import { ruleSwitches } from "../rules";
 import { directOnly } from "../rules/directOnly";
 import { log, logContext, setLogLevel } from "../log";
 import { openStorage } from "../storage";
 import { movedKeys, movedLists, movedSettings } from "../transfer";
 import { lockedDone } from "./statusPlan";
+import { todayOf, unplan } from "./plan";
 import { DEFAULT_SETTINGS, type CachedFetch, type Persistence, type Settings } from "../store";
 
 
@@ -37,6 +38,8 @@ export interface Inbox {
   /** Organizations the viewer belongs to, for the settings; empty until the first fetch. */
   memberOrgs: Org[];
   fetchedAt: Date | null;
+  /** Whether a search found more than GitHub returns (`SEARCH_STOP`), so the oldest items are missing; known after a full fetch. */
+  cut: boolean;
   settings: Settings;
   classified: Classified[];
   /**
@@ -51,10 +54,19 @@ export interface Inbox {
   reloadItem: (id: string) => Promise<void>;
   /** Reloads many items in few requests; resolves to how many came back. Those GitHub no longer resolves leave the cache, like in `reloadItem`. */
   reloadItems: (ids: string[]) => Promise<number>;
-  /** Changes one item locally and in the cache, e.g. right after a write to GitHub. */
-  updateItem: (id: string, change: (item: Item) => Item) => void;
+  /**
+   * Changes one item locally and in the cache, e.g. right after a write to GitHub. With `until`
+   * (the queued write, rejecting when it fails), a fetch or reload that started before GitHub
+   * confirmed it keeps the change; a failed one is dropped for the caller's rollback. Without
+   * `until` the change is GitHub's answer or a rollback, and writes still on their way stay on top.
+   */
+  updateItem: (id: string, change: (item: Item) => Item, until?: Promise<unknown>) => void;
   /** Item id → its status history, oldest first. */
   statusLog: Map<string, StatusChange[]>;
+  /** Item id → its log besides the status (plans, filing, returns to the inbox), oldest first. */
+  itemLog: Map<string, LogEvent[]>;
+  /** Adds an entry to an item's log, or with `undo` drops it again. */
+  logEvent: (nodeId: string, event: LogEvent, undo?: boolean) => Promise<void>;
   /** Item id → when the viewer last opened it. */
   seen: Map<string, string>;
   /**
@@ -76,16 +88,16 @@ export interface Inbox {
   /** Item id → the viewer's private note. */
   notes: Map<string, string>;
   saveNote: (nodeId: string, note: string) => Promise<void>;
-  /** `extra.until` snoozes until a time. */
-  setStatus: (nodeId: string, status: Status, extra?: StatusExtra) => Promise<void>;
+  /** `extra.until` snoozes until a time; `logAs` names the change in the timeline (see `LogAs`). */
+  setStatus: (nodeId: string, status: Status, extra?: StatusExtra, logAs?: LogAs) => Promise<void>;
   /** Drops an item's stored status, as if never set; it does not count as reopening. */
-  clearStatus: (nodeId: string) => Promise<void>;
+  clearStatus: (nodeId: string, auto?: string, logAs?: LogAs) => Promise<void>;
   /** Drops every stored status, so all items sort as if never filed; resolves to how many there were. */
   resetStatuses: () => Promise<number>;
   /** Puts back a stored status exactly as it was, or none; for undoing a change with extras. */
   restoreStatus: (nodeId: string, previous: StoredStatus | undefined) => Promise<void>;
-  /** Takes the follow-up off an item; a finished part stays done (see `Store.endFollowUp`). */
-  endFollowUp: (nodeId: string) => Promise<void>;
+  /** Takes the follow-up off an item; a finished part stays done (see `Store.endFollowUp`). "hidden" when a plan replaces it. */
+  endFollowUp: (nodeId: string, logAs?: LogAs) => Promise<void>;
   /** Replaces the hand-off snapshot of a stored "my part done", keeping its time and log. */
   setHandoff: (nodeId: string, handoff: Handoff) => Promise<void>;
   /** The classification as of now, for code that runs later (an undo) and must not see the render that scheduled it. */
@@ -161,9 +173,9 @@ function legacyDone(c: Classified, viewer: string): boolean {
  * is open and restarts whenever the organization list changes; it
  * repeats every `settings.refreshMinutes` minutes, or never when that is 0. Within
  * `FULL_EVERY_MS` (15 minutes) of a full fetch for the same organizations, refreshes only load what changed (see `canDelta`). Narrowing
- * the closed window, the item limit or switching boards off filters the cached items instead of
- * refetching. A longer closed window loads only the added days, switching boards on only the
- * boards; a higher item limit fetches in full. When GitHub's hourly
+ * the closed window or switching boards off filters the cached items instead of refetching. A
+ * longer closed window loads only the added days, switching boards on only the boards. Every
+ * search reads all GitHub returns (`SEARCH_STOP`); a cache from a lower item limit fetches in full once. When GitHub's hourly
  * GraphQL budget runs low, automatic refreshes wait for its reset (`pausedUntil`); ⌘R still works.
  *
  * @returns The current state and the actions the UI may call.
@@ -174,6 +186,7 @@ export function useInbox(): Inbox {
   const [statuses, setStatuses] = useState<Map<string, StoredStatus>>(new Map());
   const [writeFailures, setWriteFailures] = useState<Map<string, WriteFailure[]>>(new Map());
   const [statusLog, setStatusLog] = useState<Map<string, StatusChange[]>>(new Map());
+  const [itemLog, setItemLog] = useState<Map<string, LogEvent[]>>(new Map());
   const [seen, setSeen] = useState<Map<string, string>>(new Map());
   const [unreadMarks, setUnreadMarks] = useState<Map<string, string>>(new Map());
   const [handledUntil, setHandledUntilMap] = useState<Map<string, string>>(new Map());
@@ -183,6 +196,8 @@ export function useInbox(): Inbox {
   const [myName, setMyName] = useState<string | null>(null);
   const [myAvatar, setMyAvatar] = useState<string | null>(null);
   const [missing, setMissing] = useState<Scope[]>([]);
+  /** The scopes the token lacks; null while unknown (also for fine-grained tokens), which keeps plans in `dropGone`. */
+  const lacking = useRef<Scope[] | null>(null);
   const [paused, setPaused] = useState<Date | null>(null);
   const [usage, setUsage] = useState<Inbox["usage"]>({ budget: null, lastCost: null });
   const pausedRef = useRef<Date | null>(null);
@@ -202,7 +217,9 @@ export function useInbox(): Inbox {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+  const [cut, setCut] = useState(false);
   const lastFetch = useRef<CachedFetch | null>(null);
+  const pending = useRef<PendingChange[]>([]);
   const storedStatuses = useRef(statuses);
   useEffect(() => {
     storedStatuses.current = statuses;
@@ -215,15 +232,38 @@ export function useInbox(): Inbox {
   }, []);
   const running = useRef<AbortController | null>(null);
   // Read by `refresh` without being dependencies: narrowing them filters locally instead of refetching.
-  const wanted = useRef<Coverage>({ closedDays: settings.closedDays, boards: settings.loadBoards, maxItems: settings.maxItems });
+  const wanted = useRef<Coverage>({ closedDays: settings.closedDays, boards: settings.loadBoards, maxItems: SEARCH_STOP });
   useEffect(() => {
-    wanted.current = { closedDays: settings.closedDays, boards: settings.loadBoards, maxItems: settings.maxItems };
-  }, [settings.closedDays, settings.loadBoards, settings.maxItems]);
+    wanted.current = { closedDays: settings.closedDays, boards: settings.loadBoards, maxItems: SEARCH_STOP };
+  }, [settings.closedDays, settings.loadBoards]);
 
   const latestSettings = useRef(settings);
   useEffect(() => {
     latestSettings.current = settings;
   }, [settings]);
+
+  // The SQL plugin's pool runs writes on several connections, so two saves at once could land out of order.
+  const settingsWrites = useRef<Promise<void>>(Promise.resolve());
+  const saveSettings = useCallback(
+    async (next: Settings) => {
+      if (!store) return;
+      latestSettings.current = next;
+      const write = settingsWrites.current.then(() => store.saveSettings(next));
+      settingsWrites.current = write.catch(() => undefined);
+      await write;
+      if (latestSettings.current === next) setSettings(next);
+    },
+    [store],
+  );
+
+  const updateSettings = useCallback(
+    (change: (current: Settings) => Settings) => {
+      // Set at once, so a second update in the same tick builds on this one instead of the last render.
+      latestSettings.current = change(latestSettings.current);
+      return saveSettings(latestSettings.current);
+    },
+    [saveSettings],
+  );
 
   /**
    * Carries the local state of transferred issues to their new ids, in the store; the returned
@@ -234,11 +274,15 @@ export function useInbox(): Inbox {
       if (!store) return () => undefined;
       await store.moveItems(moves);
       const moved = movedSettings(latestSettings.current, moves, items);
-      if (moved !== latestSettings.current) await store.saveSettings(moved);
+      if (moved !== latestSettings.current) {
+        latestSettings.current = moved;
+        await store.saveSettings(moved);
+      }
       return () => {
         setSettings((current) => movedSettings(current, moves, items));
         setStatuses((current) => movedKeys(current, moves));
         setStatusLog((current) => movedLists(current, moves));
+        setItemLog((current) => movedLists(current, moves));
         setSeen((current) => movedKeys(current, moves));
         setUnreadMarks((current) => movedKeys(current, moves));
         setHandledUntilMap((current) => movedKeys(current, moves));
@@ -276,6 +320,7 @@ export function useInbox(): Inbox {
       setStatuses(await opened.statuses());
       setWriteFailures(await opened.writeFailures());
       setStatusLog(await opened.statusLog());
+      setItemLog(await opened.itemLog());
       setSeen(await opened.seen());
       setUnreadMarks(await opened.unreadMarks());
       setHandledUntilMap(await opened.handledUntil());
@@ -301,9 +346,10 @@ export function useInbox(): Inbox {
       const token = await ghToken();
       void tokenScopes(token).then(
         (scopes) => {
-          const lacking = missingScopes(scopes);
-          log.debug("token scopes", { known: scopes !== null, missing: lacking.join(",") || "none" });
-          setMissing(lacking);
+          const absent = missingScopes(scopes);
+          lacking.current = scopes === null ? null : absent;
+          log.debug("token scopes", { known: scopes !== null, missing: absent.join(",") || "none" });
+          setMissing(absent);
         },
         () => undefined,
       );
@@ -312,13 +358,14 @@ export function useInbox(): Inbox {
       const key = JSON.stringify([settings.orgs, viewer.login]);
       const last = lastFetch.current;
       const had = decodeScope(last?.scope);
-      const same = !full && !!last && had?.key === key && canDelta({ fullAt: last.fullAt, scope: had.key }, key);
+      const same = !full && !!last && had?.key === key && canDelta({ fullAt: last.fullAt, scope: had.key, items: last.items }, key);
       const widen = same && widensClosed(had.coverage, want);
       const delta = (same && covers(had.coverage, want)) || widen;
       // A delta keeps what the cache covers, so a narrower setting does not shrink it; the view filters.
       const coverage: Coverage = delta ? { ...had.coverage, closedDays: Math.max(had.coverage.closedDays, want.closedDays), boards: want.boards } : want;
       // Boards switched on come for every item at once through `withBoards` below, not twice.
-      const options = { limit: coverage.maxItems, closedDays: coverage.closedDays, me: viewer.login, boards: want.boards && (!delta || had.coverage.boards), signal };
+      const cutSearches = new Set<string>();
+      const options = { limit: coverage.maxItems, closedDays: coverage.closedDays, me: viewer.login, boards: want.boards && (!delta || had.coverage.boards), signal, onCut: (q: string) => cutSearches.add(q) };
       // The added days first, so the delta's newer copy of an item in both wins the merge.
       const [fetched, requested] = delta
         ? await Promise.all([
@@ -349,7 +396,7 @@ export function useInbox(): Inbox {
       const fetchedAt = new Date();
       const result: CachedFetch = {
         viewer: { ...viewer, avatar },
-        items,
+        items: withPending(items, pending.current, startedAt),
         fetchedAt,
         fullAt: delta ? last.fullAt : fetchedAt,
         scope: encodeScope(key, coverage),
@@ -357,10 +404,12 @@ export function useInbox(): Inbox {
       const showMoved = moves.size > 0 ? await carryOver(moves, items) : null;
       showMoved?.();
       apply(result);
+      pending.current = livePending(pending.current, startedAt);
+      setCut((was) => (delta && was) || cutSearches.size > 0);
       await store.saveFetch(result);
       noteBudget(lastBudget());
       setUsage({ budget: lastBudget(), lastCost: pointsSpent() - mark });
-      log.debug("refresh", { kind: widen ? "widen" : delta ? "delta" : "full", fetched: fetched.length, items: items.length, ms: Date.now() - startedAt, cost: pointsSpent() - mark, remaining: lastBudget()?.remaining });
+      log.debug("refresh", { kind: widen ? "widen" : delta ? "delta" : "full", fetched: fetched.length, items: items.length, ms: Date.now() - startedAt, cost: pointsSpent() - mark, remaining: lastBudget()?.remaining, cut: cutSearches.size });
       log.debug("cache saved", { items: items.length });
       return true;
     } catch (e) {
@@ -445,12 +494,14 @@ export function useInbox(): Inbox {
     setLoading(false);
   }, []);
 
-  /** Changes one cached item locally, e.g. right after a write, until the next fetch has it from GitHub. */
+  /** See `InboxState.updateItem`. */
   const updateItem = useCallback(
-    (id: string, change: (item: Item) => Item) => {
+    (id: string, change: (item: Item) => Item, until?: Promise<unknown>) => {
       const last = lastFetch.current;
       if (!store || !last) return;
-      const next = { ...last, items: last.items.map((item) => (item.id === id ? change(item) : item)) };
+      if (until) void trackPending(pending, { id, change }, until);
+      const update = (item: Item) => (until ? change(item) : withPending([change(item)], pending.current)[0]);
+      const next = { ...last, items: last.items.map((item) => (item.id === id ? update(item) : item)) };
       lastFetch.current = next;
       setItems(next.items);
       void store.saveFetch(next);
@@ -461,13 +512,16 @@ export function useInbox(): Inbox {
   /**
    * Handles items GitHub no longer resolves and no cached item turned out to be their transferred
    * copy: a refresh first, which finds an issue transferred to a place not cached yet and carries
-   * its state over, then what is still cached under these ids goes.
+   * its state over, then what is still cached under these ids goes, and so do their pins and
+   * plans (a calendar link follows as an orphan, see `orphanLinks`). Plans stay while the token's
+   * scopes are unknown or lacking, since GitHub then answers `NOT_FOUND` for private items too.
    * A refresh that fails or is stopped keeps them, so a later one can still pair them.
    */
   const dropGone = useCallback(
     async (ids: string[]) => {
       log.debug("items gone", { ids: ids.join(",") });
       if (!(await refresh())) return;
+      if (lacking.current?.length === 0) await updateSettings((s) => ({ ...s, ...unplan(todayOf(s), ids) }));
       const last = lastFetch.current;
       const gone = new Set(ids);
       if (!store || !last?.items.some((item) => gone.has(item.id))) return;
@@ -476,7 +530,7 @@ export function useInbox(): Inbox {
       setItems(next.items);
       await store.saveFetch(next);
     },
-    [store, refresh],
+    [store, refresh, updateSettings],
   );
 
   /**
@@ -486,7 +540,7 @@ export function useInbox(): Inbox {
    * `transferCandidates`); what still has no new place goes through `dropGone`.
    */
   const takeReloaded = useCallback(
-    async (token: string, ids: string[], loaded: Item[]) => {
+    async (token: string, ids: string[], loaded: Item[], startedAt: number) => {
       const last = lastFetch.current;
       if (!store || !last) return;
       let fresh = loaded;
@@ -497,8 +551,9 @@ export function useInbox(): Inbox {
       if (moves.size > 0) logTransfers(last.items, fresh, moves);
       const showMoved = moves.size > 0 ? await carryOver(moves, fresh) : null;
       const current = lastFetch.current ?? last;
-      const next = { ...current, items: mergeReloaded(current.items, fresh, moves) };
+      const next = { ...current, items: withPending(mergeReloaded(current.items, fresh, moves), pending.current, startedAt) };
       lastFetch.current = next;
+      pending.current = livePending(pending.current, startedAt);
       showMoved?.();
       setItems(next.items);
       await store.saveFetch(next);
@@ -512,10 +567,11 @@ export function useInbox(): Inbox {
     async (id: string) => {
       const last = lastFetch.current;
       if (!store || !last) return;
+      const startedAt = Date.now();
       try {
         const token = await ghToken();
         const fresh = await fetchItem(token, id, { me: last.viewer.login, boards: settings.loadBoards });
-        await takeReloaded(token, [id], fresh ? [fresh] : []);
+        await takeReloaded(token, [id], fresh ? [fresh] : [], startedAt);
       } catch (e) {
         if (e instanceof RateLimitError) pause(e.until);
         setError(String(e));
@@ -528,10 +584,11 @@ export function useInbox(): Inbox {
     async (ids: string[]) => {
       const last = lastFetch.current;
       if (!store || !last || ids.length === 0) return 0;
+      const startedAt = Date.now();
       try {
         const token = await ghToken();
         const fresh = await fetchItemsById(token, ids, { me: last.viewer.login, boards: settings.loadBoards });
-        await takeReloaded(token, ids, fresh);
+        await takeReloaded(token, ids, fresh, startedAt);
         return fresh.length;
       } catch (e) {
         if (e instanceof RateLimitError) pause(e.until);
@@ -550,11 +607,11 @@ export function useInbox(): Inbox {
   // Widening a setting past what the cache covers fetches; narrowing it only filters (`shown`).
   useEffect(() => {
     const had = decodeScope(lastFetch.current?.scope);
-    const want = { closedDays: settings.closedDays, boards: settings.loadBoards, maxItems: settings.maxItems };
+    const want = { closedDays: settings.closedDays, boards: settings.loadBoards, maxItems: SEARCH_STOP };
     if (!had || (covers(had.coverage, want) && (!want.boards || had.coverage.boards))) return;
      
     void refresh();
-  }, [settings.closedDays, settings.loadBoards, settings.maxItems, refresh]);
+  }, [settings.closedDays, settings.loadBoards, refresh]);
 
   useEffect(() => {
     if (settings.refreshMinutes <= 0) return;
@@ -573,11 +630,9 @@ export function useInbox(): Inbox {
     return () => window.clearInterval(timer);
   }, []);
 
-  const { ownFeedback, assignedFeedback, threadReplies, ownClosed } = settings;
-  const askRules = useMemo(() => ({ ownFeedback, assignedFeedback, threadReplies, ownClosed }), [ownFeedback, assignedFeedback, threadReplies, ownClosed]);
   const classified = useMemo(() => {
     if (!me) return [];
-    const switches = ruleSwitches(settings.rules);
+    const switches = ruleSwitches();
     const untracked = new Set(settings.untracked.map((u) => u.id));
     const dated = new Set([...settings.focus, ...settings.planned.map((p) => p.id)]);
     // The cache may hold more than the settings ask for (see `Coverage`); show only that.
@@ -585,20 +640,30 @@ export function useInbox(): Inbox {
       .filter((item) => repoVisible(item.repo, settings.repoFilters) && !untracked.has(item.id))
       .map((item) => directOnly(item, me, settings.directOnly))
       .map((item) => (settings.loadBoards ? item : { ...item, boards: [] }))
-      .map((item) => classify(item, me, statuses.get(item.id), switches, settings.reopenOn, now, settings.reviewOnCommits, handledUntil.get(item.id), askRules, dated.has(item.id)));
-  }, [items, me, statuses, settings.rules, settings.reopenOn, settings.reviewOnCommits, askRules, handledUntil, settings.repoFilters, settings.directOnly, settings.untracked, settings.closedDays, settings.loadBoards, settings.focus, settings.planned, now]);
+      .map((item) => classify(item, me, statuses.get(item.id), switches, settings.reopenOn, now, settings.reviewOnCommits, handledUntil.get(item.id), ASK_RULES_DEFAULT, dated.has(item.id)));
+  }, [items, me, statuses, settings.reopenOn, settings.reviewOnCommits, handledUntil, settings.repoFilters, settings.directOnly, settings.untracked, settings.closedDays, settings.loadBoards, settings.focus, settings.planned, now]);
 
   const writeStatus = useCallback(
-    async (nodeId: string, status: Status, automatic: boolean, extra: StatusExtra = {}, source = manualSource()) => {
+    async (nodeId: string, status: Status, automatic: boolean, extra: StatusExtra = {}, source = manualSource(), logAs: LogAs | null = null) => {
       if (!store) return;
-      const { stored, change } = await store.setStatus(nodeId, status, automatic, undefined, extra, source);
+      const { stored, change } = await store.setStatus(nodeId, status, automatic, undefined, extra, source, logAs);
       logChange(nodeId, stored, source);
       setStatuses((current) => new Map(current).set(nodeId, stored));
       setStatusLog((current) => new Map(current).set(nodeId, [...(current.get(nodeId) ?? []), change]));
     },
     [store, logChange],
   );
-  const setStatus = useCallback((nodeId: string, status: Status, extra: StatusExtra = {}) => writeStatus(nodeId, status, false, extra), [writeStatus]);
+  const setStatus = useCallback((nodeId: string, status: Status, extra: StatusExtra = {}, logAs?: LogAs) => writeStatus(nodeId, status, false, extra, manualSource(), logAs), [writeStatus]);
+
+  const logEvent = useCallback(
+    async (nodeId: string, event: LogEvent, undo = false) => {
+      if (!store) return;
+      await (undo ? store.removeLogEvent(nodeId, event) : store.addLogEvent(nodeId, event));
+      const without = (list: LogEvent[]) => list.filter((e) => e.kind !== event.kind || e.at !== event.at);
+      setItemLog((current) => new Map(current).set(nodeId, undo ? without(current.get(nodeId) ?? []) : [...(current.get(nodeId) ?? []), event]));
+    },
+    [store],
+  );
 
   /** Records a failed write to GitHub, which then shows in the item's timeline. */
   const logWriteFailure = useCallback(
@@ -612,10 +677,10 @@ export function useInbox(): Inbox {
 
   /** Drops the stored status at the viewer's request, as if never set (see `Store.clearStatus`). */
   const clearStatus = useCallback(
-    async (nodeId: string, auto?: string) => {
+    async (nodeId: string, auto?: string, logAs?: LogAs) => {
       if (!store) return;
       const source = auto ?? manualSource();
-      const change = await store.clearStatus(nodeId, undefined, source);
+      const change = await store.clearStatus(nodeId, undefined, source, logAs);
       logChange(nodeId, undefined, `clearStatus:${source}`);
       setStatuses((current) => {
         const next = new Map(current);
@@ -658,10 +723,10 @@ export function useInbox(): Inbox {
 
   /** Takes the follow-up off an item at the viewer's request; a finished part stays done (see `Store.endFollowUp`). */
   const endFollowUp = useCallback(
-    async (nodeId: string) => {
+    async (nodeId: string, logAs?: LogAs) => {
       if (!store) return;
       const source = manualSource();
-      const { stored, change } = await store.endFollowUp(nodeId, undefined, source);
+      const { stored, change } = await store.endFollowUp(nodeId, undefined, source, logAs);
       logChange(nodeId, stored, `endFollowUp:${source}`);
       setStatuses((current) => {
         const next = new Map(current);
@@ -719,6 +784,20 @@ export function useInbox(): Inbox {
     }
   }, [classified, writeStatus, clearStatus, me, statuses]);
 
+  // Each return to the inbox keeps one line in the log: the first since the item was last handled.
+  const returns = useRef(new Set<string>());
+  useEffect(() => {
+    if (!store) return;
+    for (const c of classified) {
+      if (!c.back) continue;
+      const since = handledUntil.get(c.item.id) ?? "";
+      const key = `${c.item.id}@${since}`;
+      if (returns.current.has(key) || (itemLog.get(c.item.id) ?? []).some((e) => e.kind === "back" && e.at > since)) continue;
+      returns.current.add(key);
+      void logEvent(c.item.id, { kind: "back", at: c.back.at, value: c.back.ask });
+    }
+  }, [store, classified, handledUntil, itemLog, logEvent]);
+
   const latestClassified = useRef(classified);
   useEffect(() => {
     latestClassified.current = classified;
@@ -735,29 +814,6 @@ export function useInbox(): Inbox {
     }
   }, [classified]);
 
-  // The SQL plugin's pool runs writes on several connections, so two saves at once could land out of order.
-  const settingsWrites = useRef<Promise<void>>(Promise.resolve());
-  const saveSettings = useCallback(
-    async (next: Settings) => {
-      if (!store) return;
-      latestSettings.current = next;
-      const write = settingsWrites.current.then(() => store.saveSettings(next));
-      settingsWrites.current = write.catch(() => undefined);
-      await write;
-      if (latestSettings.current === next) setSettings(next);
-    },
-    [store],
-  );
-
-  const updateSettings = useCallback(
-    (change: (current: Settings) => Settings) => {
-      // Set at once, so a second update in the same tick builds on this one instead of the last render.
-      latestSettings.current = change(latestSettings.current);
-      return saveSettings(latestSettings.current);
-    },
-    [saveSettings],
-  );
-
   return {
     ready: store !== null,
     loading,
@@ -770,6 +826,7 @@ export function useInbox(): Inbox {
     usage,
     memberOrgs,
     fetchedAt,
+    cut,
     settings,
     classified,
     refresh,
@@ -778,6 +835,8 @@ export function useInbox(): Inbox {
     reloadItems,
     updateItem,
     statusLog,
+    itemLog,
+    logEvent,
     seen,
     markSeen,
     unreadMarks,

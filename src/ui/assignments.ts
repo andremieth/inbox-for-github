@@ -12,6 +12,7 @@ import type { SnoozeGroup } from "./timeGroups";
  * part done. Assignments not opened yet sit in their work status bar, marked as new in their row;
  * so do those pinned for today or planned for a day, with their day (Planned lists them).
  */
+// "later" holds the follow-ups; the id is stored in `plateOrder` and the collapsed bars, so it keeps its name.
 export type PlateGroup = "review" | "progress" | "todo" | "blocked" | "later" | "finished";
 
 /** A bar of the tables in any grouping: a work status bar, a type bar (see `groupByType`), a repository bar (see `groupByRepo`), a bar of Created by me or a day bar of Planned. */
@@ -254,6 +255,24 @@ export function withSelfAssigned(item: Item, me: string, at: string): Item {
     assignees: [...item.assignees, me],
     reasons: item.reasons.includes("assigned") ? item.reasons : [...item.reasons, "assigned"],
     activities: [...item.activities, { kind: "assigned", at, actor: me, assignee: me }],
+  };
+}
+
+/**
+ * The item as it looks once the viewer left the assignees: without them and the reason
+ * "assigned", with an unassignment event by themselves. An item they are not assigned to stays
+ * as it is, so the change can be put onto a fetch that already shows it.
+ *
+ * @example
+ *   withSelfUnassigned(item, "octocat", new Date().toISOString());
+ */
+export function withSelfUnassigned(item: Item, me: string, at: string): Item {
+  if (!item.assignees.some((a) => sameLogin(a, me))) return item;
+  return {
+    ...item,
+    assignees: item.assignees.filter((a) => !sameLogin(a, me)),
+    reasons: item.reasons.filter((r) => r !== "assigned"),
+    activities: [...item.activities, { kind: "unassigned", at, actor: me, assignee: me }],
   };
 }
 

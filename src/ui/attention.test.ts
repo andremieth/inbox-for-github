@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Classified } from "../classify";
 import type { Item } from "../model";
-import { arrivals, askKey, notificationTitle, notifies, notifyReason } from "./attention";
+import { arrivals, askKey, dueReminders, laterChoices, notificationTitle, notifies, notifyReason } from "./attention";
 import { setLang } from "./i18n";
 
 setLang("en");
@@ -26,6 +26,20 @@ describe("arrivals", () => {
     const due = entry("I_4", { asks: ["due"] });
     expect(arrivals([back, asked, due], new Map()).map((c) => c.item.id)).toEqual(["I_3"]);
   });
+
+  it("keeps quiet what a due follow-up raises again, and notifies an ask newer than the due time", () => {
+    const raised = entry("I_1", { asks: ["due", "review"], asked: { due: "2026-11-13T12:45:00Z", review: "2026-11-10T09:00:00Z" } });
+    const parked = entry("I_2", { asks: ["due", "review"], asked: { due: "2026-11-13T12:45:00Z" } });
+    const newer = entry("I_3", { asks: ["due", "mention"], asked: { due: "2026-11-13T12:45:00Z", mention: "2026-11-13T13:00:00Z" } });
+    expect(arrivals([raised, parked, newer], new Map()).map((c) => c.item.id)).toEqual(["I_3"]);
+  });
+  it("keeps quiet an item that returns with an ask from before the last fetch, and notifies a newer or undated one", () => {
+    const old = entry("I_1", { asks: ["mention"], asked: { mention: "2026-11-12T18:00:00Z" } });
+    const recent = entry("I_2", { asks: ["mention"], asked: { mention: "2026-11-13T09:58:00Z" } });
+    const undated = entry("I_3", { asks: ["review"] });
+    expect(arrivals([old, recent, undated], new Map(), "2026-11-13T09:55:00Z").map((c) => c.item.id)).toEqual(["I_2", "I_3"]);
+  });
+
   it("notifies again when an item already in the inbox gets a new ask", () => {
     const before = entry("I_1", { asks: ["mention"], mention: { by: "bob", at: "2026-10-05T00:00:00Z", excerpt: "", self: false } });
     const after = entry("I_1", { asks: ["mention"], mention: { by: "bob", at: "2026-10-06T00:00:00Z", excerpt: "", self: false } });
@@ -65,5 +79,36 @@ describe("notifyReason", () => {
   it("lets every reason notify unless switched off", () => {
     expect(notifies("review", {})).toBe(true);
     expect(notifies("review", { review: false })).toBe(false);
+  });
+});
+
+describe("dueReminders", () => {
+  const due = (id: string, at: string, notify = true) => entry(id, { asks: ["due"], asked: { due: at }, ...(notify && { notify: true as const }) });
+  const items = [due("I_1", "2026-11-12T08:00:00Z"), due("I_2", "2026-11-13T08:00:00Z"), due("I_3", "2026-11-13T08:00:00Z", false), entry("I_4", { notify: true })];
+
+  it("rings at start only what came due since the last fetch, and nothing without a cache", () => {
+    expect(dueReminders(items, null, "2026-11-12T17:00:00Z").map((c) => c.item.id)).toEqual(["I_2"]);
+    expect(dueReminders(items, null, null)).toEqual([]);
+  });
+
+  it("rings afterwards what newly rings, once, and never a plain due follow-up or one still waiting", () => {
+    expect(dueReminders(items, new Set(["I_1"]), null).map((c) => c.item.id)).toEqual(["I_2"]);
+    expect(dueReminders(items, new Set(["I_1", "I_2"]), null)).toEqual([]);
+  });
+});
+
+describe("laterChoices", () => {
+  const ids = (now: Date) => laterChoices(now, [1, 2, 3, 4, 5], "09:00").map((l) => [l.id, l.title, new Date(l.until).toString().slice(0, 21)]);
+
+  it("offers an hour, this afternoon before 14:00, and the next workday at the follow-up time", () => {
+    expect(ids(new Date(2026, 10, 13, 9, 30))).toEqual([
+      ["later-hour", "In 1 hour", "Fri Nov 13 2026 10:30"],
+      ["later-afternoon", "This afternoon", "Fri Nov 13 2026 14:00"],
+      ["later-workday", "Next workday", "Mon Nov 16 2026 09:00"],
+    ]);
+  });
+
+  it("drops this afternoon from 14:00 on", () => {
+    expect(ids(new Date(2026, 10, 12, 14, 0)).map(([id]) => id)).toEqual(["later-hour", "later-workday"]);
   });
 });

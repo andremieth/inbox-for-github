@@ -7,6 +7,8 @@ export type Bucket = "inbox" | "planned" | "assigned" | "involved" | "authored" 
 export type Status = "open" | "snoozed" | "done";
 
 export interface Comment {
+  /** The comment's node id, for reacting to it; absent in caches from before it was kept. */
+  id?: string;
   author: string;
   body: string;
   createdAt: string;
@@ -14,6 +16,18 @@ export interface Comment {
   where?: string;
   /** Review summaries only: the review's verdict. Absent in caches from before it was kept. */
   reviewState?: ReviewState;
+  /** The emoji used under it; absent in caches from before they were loaded, which reads as none. */
+  reactions?: Reaction[];
+}
+
+/** GitHub's eight reaction emoji, by its names. */
+export type ReactionContent = "THUMBS_UP" | "THUMBS_DOWN" | "LAUGH" | "HOORAY" | "CONFUSED" | "HEART" | "ROCKET" | "EYES";
+
+/** One emoji under a post: how many reacted with it, and whether the viewer is among them. GitHub's reactors are not loaded, only their count. */
+export interface Reaction {
+  content: ReactionContent;
+  count: number;
+  mine: boolean;
 }
 
 export interface Label {
@@ -126,6 +140,8 @@ export interface Item {
   url: string;
   author: string;
   body: string;
+  /** The emoji used under the description; absent in caches from before they were loaded. */
+  reactions?: Reaction[];
   createdAt: string;
   updatedAt: string;
   labels: Label[];
@@ -192,6 +208,8 @@ export interface StoredStatus {
   changedAt: string;
   /** Snoozed until this time (ISO 8601); it comes back then, or earlier by the "reopenOn" setting. */
   until?: string;
+  /** With "snoozed" and `until`: the viewer asked to be reminded ("Remind me"), so the follow-up notifies when it comes due. */
+  notify?: boolean;
   /** With "done", or "snoozed" while a follow-up waits: the viewer's part of an assignment ended; what happens after it is an update for them. */
   handoff?: Handoff;
 }
@@ -206,11 +224,12 @@ export interface Handoff {
 }
 
 /** What a status change may carry besides the status: see `StoredStatus`. */
-export type StatusExtra = Pick<StoredStatus, "until" | "handoff">;
+export type StatusExtra = Pick<StoredStatus, "until" | "notify" | "handoff">;
 
 /** A write to GitHub that failed and was undone here, kept for the item's timeline. */
 export interface WriteFailure {
-  kind: "assign" | "unassign";
+  /** "react": adding or taking back the viewer's reaction on a post. */
+  kind: "assign" | "unassign" | "react";
   at: string;
   /** GitHub's or the network's message. */
   error: string;
@@ -223,4 +242,28 @@ export interface StatusChange {
   automatic: boolean;
   /** What caused the change, e.g. "key:d" or "auto:locked"; "auto:snooze-ended" and "auto:reopen" are only read from old rows; unset in older ones. */
   source?: string;
+  /** With "snoozed": the follow-up's date, "" for one without; unset in rows from before it was logged. */
+  until?: string;
+  /** With "snoozed": "Remind me" was on. */
+  notify?: true;
+  /** How the timeline names the change when its status alone would mislead (see `LogAs`). */
+  logAs?: LogAs;
+}
+
+/**
+ * A status change the timeline names by what the viewer did: X took off a follow-up ("follow-up-ended"),
+ * O took a finished part back into the work ("resumed"), or a change another line already tells
+ * ("hidden"): a follow-up a plan replaced, a cleared "Open" that D filed.
+ */
+export type LogAs = "follow-up-ended" | "resumed" | "hidden";
+
+/**
+ * One entry of an item's log besides its status: P or T planned it (`value` the local day),
+ * X took the plan off, "Keep plan" kept it through a new ask (`value` the day), D filed it, or it
+ * came back into the inbox (`value` the ask that brought it).
+ */
+export interface LogEvent {
+  kind: "plan" | "plan-removed" | "plan-kept" | "filed" | "back";
+  at: string;
+  value?: string;
 }

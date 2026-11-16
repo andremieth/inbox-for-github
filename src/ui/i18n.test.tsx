@@ -1,6 +1,5 @@
 import { isValidElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { RULES } from "../rules";
 import { dateLocale, regionOf, setLang, setRegion, t, tKey, tKeys, tRich, type MessageKey } from "./i18n";
 import { en } from "./locales/en";
 import { setPlatform } from "./platform";
@@ -82,18 +81,10 @@ describe("Windows wording", () => {
     setLang("en");
     expect(t("help.assigned.leaves")).toContain("calendar event");
     setPlatform("windows");
+    // The calendar mark is the icon of a plan, which Windows shows as well.
     for (const lang of ["en", "de"] as const) {
       setLang(lang);
-      for (const key of (Object.keys(en) as MessageKey[]).filter((k) => k.startsWith("help.") || k.startsWith("keys."))) expect(t(key), `${lang}: ${key}`).not.toMatch(/calendar|Kalender/i);
-    }
-  });
-});
-
-describe("rule texts", () => {
-  it("has a title and a description for every rule", () => {
-    for (const rule of RULES) {
-      expect(Object.keys(en)).toContain(`rule.${rule.id}.title`);
-      expect(Object.keys(en)).toContain(`rule.${rule.id}.description`);
+      for (const key of (Object.keys(en) as MessageKey[]).filter((k) => k.startsWith("help.") || k.startsWith("keys."))) expect(t(key), `${lang}: ${key}`).not.toMatch(/calendar(?! mark)|Kalender(?!-Markierung)/i);
     }
   });
 });

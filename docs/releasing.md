@@ -10,7 +10,9 @@ The steps under "Releasing" are upstream's and describe its macOS build. They do
 this repository is a fork that follows upstream's versions. It never changes the version files,
 `.release-please-manifest.json` or `CHANGELOG.md`, upstream's tags are the version tags, and the
 `Release` workflow, which is upstream's file, is switched off in the repository's Actions
-settings.
+settings. The `Shell` workflow has upstream's file name and this repository's content: it
+compiles the shell on macOS and on Windows for every pull request, where upstream's compiles it
+on macOS for the pull requests that touch it.
 
 There is no Windows release yet. A prerelease of the checkout: `npm run build:local:windows`
 builds the installer, installs it for the current user and starts the app (`-- --dry-run` only
@@ -43,6 +45,11 @@ What needs a look in upstream's changes, as Windows keeps it apart:
   it; [`windows.md`](reference/windows.md#the-shell) lists what was left out and why.
 - A new text that names the Mac or, in the help, the calendar needs its Windows wording;
   `npm test` fails until it has one.
+- A text upstream rewrote keeps its old Windows wording, and no test notices: compare the keys
+  of `enWindows` and `deWindows` with upstream's new texts by hand (seen 2026-11-16 with
+  `settings.intro.rules`).
+- `.github/workflows/shell.yml` conflicts whenever upstream changes its own; keep this
+  repository's version and take over what applies to it.
 - A changed version of `tauri` in `src-tauri/Cargo.toml` needs the same version in the entry
   under `[target.'cfg(windows)'.dependencies]`, and `Cargo.lock` written once more by a
   `cargo check` without `--locked`.
@@ -93,7 +100,9 @@ Privacy & Security › "Open Anyway"). Release PRs may change the version
 fields in the two lockfiles; other lockfile changes still need approval.
 
 `release-please-config.json` has the settings; `.release-please-manifest.json` holds the last released
-version. The `Checks` workflow runs typecheck, lint and tests on every PR.
+version. The `Checks` workflow runs typecheck, lint and tests on every PR. The `Shell` workflow compiles
+the Rust shell on macOS (`cargo check --locked`) for every PR that touches `src-tauri/` or the
+toolchain, so a broken shell shows up there instead of in the release build.
 
 **`Cargo.lock` needs `.value` in its filter** (verified 2026-10-27, release-please 17.6.0): the `toml`
 updater parses with a tagging parser that wraps every string in an object with its position, so

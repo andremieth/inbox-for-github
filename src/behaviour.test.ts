@@ -10,6 +10,8 @@ import { VIEWS, type View } from "./ui/labels";
 import { datedOf } from "./ui/plan";
 import { doneAccess } from "./ui/statusPlan";
 import { inDoneBar } from "./ui/doneBar";
+import { arrivals, askKey, dueReminders, ringing } from "./ui/attention";
+import { unreadInInbox } from "./ui/unread";
 
 // Walks the table in docs/reference/behaviour.md, one describe per rule.
 const ME = "octocat";
@@ -540,9 +542,31 @@ describe("rule 5: a follow-up is a when, not a status", () => {
       },
     },
     {
-      situation: "X takes off the follow-up only; the asks F handled stay out of the inbox",
+      situation: "X takes off the follow-up and gives back what F handled: the pending mention asks again",
       run: async (world, app) => {
         const issue = await mentioned(world, app);
+        app.snooze(issue, later(world, 3 * DAY));
+        app.clearFollowUp(issue);
+        expect(viewsOf(app.entry(issue))).toContain("inbox");
+        expect(app.entry(issue).asks).toEqual(["mention"]);
+      },
+    },
+    {
+      situation: "X on a plan gives back what P handled, as on a follow-up",
+      run: async (world, app) => {
+        const issue = await mentioned(world, app);
+        app.plan(issue, later(world, 2 * DAY).slice(0, 10));
+        expect(viewsOf(app.entry(issue))).not.toContain("inbox");
+        app.clearPlan(issue);
+        expect(app.entry(issue).asks).toEqual(["mention"]);
+      },
+    },
+    {
+      situation: "X on a follow-up with nothing pending brings nothing back",
+      run: async (world, app) => {
+        const issue = await mentioned(world, app);
+        world.comment(issue, ME, "On it.");
+        await refetch(world, app, issue);
         app.snooze(issue, later(world, 3 * DAY));
         app.clearFollowUp(issue);
         expect(viewsOf(app.entry(issue))).not.toContain("inbox");
@@ -666,6 +690,142 @@ describe("rule 7: news by someone else makes an item unread; an unassignment is 
     { situation: "someone else assigns another person: news", run: async (world, app) => expect(await newsAfter(world, app, (i) => world.assign(i, "alice", "carol"))).toBe(true) },
     { situation: "someone else removes another assignee: no news", run: async (world, app) => expect(await newsAfter(world, app, (i) => world.unassign(i, "alice", "bob"))).toBe(false) },
     { situation: "someone else removes me: no news", run: async (world, app) => expect(await newsAfter(world, app, (i) => world.unassign(i, "alice", ME))).toBe(false) },
+  ]);
+});
+
+describe("rule 8: a follow-up with Remind me rings once when it comes due, and comes back unread like any", () => {
+  /** An own pull request reviewed by bob, waiting a day for a follow-up, with or without Remind me. */
+  async function waitingOnReview(world: GitHubSimulator, app: InboxSession, notify: boolean): Promise<Ref> {
+    const pr = world.pullRequest({ author: ME });
+    world.requestReview(pr, ME, "bob");
+    await app.refresh();
+    app.snooze(pr, later(world, DAY), notify);
+    return pr;
+  }
+  walk([
+    {
+      situation: "an own pull request with Remind me: waits in Created by me, then rings in the inbox",
+      run: async (world, app) => {
+        const pr = await waitingOnReview(world, app, true);
+        expect(ringing(app.entry(pr))).toBe(false);
+        expect(viewsOf(app.entry(pr))).toEqual(["snoozed", "authored"]);
+        world.advance(2 * DAY);
+        expect(ringing(app.entry(pr))).toBe(true);
+        expect(viewsOf(app.entry(pr))).toEqual(["inbox", "authored"]);
+      },
+    },
+    {
+      situation: "a plain follow-up comes due quietly",
+      run: async (world, app) => {
+        const pr = await waitingOnReview(world, app, false);
+        world.advance(2 * DAY);
+        expect(app.entry(pr).asks).toEqual(["due"]);
+        expect(ringing(app.entry(pr))).toBe(false);
+      },
+    },
+    {
+      situation: "with or without Remind me, it comes back unread though it was seen when F was set",
+      run: async (world, app) => {
+        for (const notify of [true, false]) {
+          const pr = await waitingOnReview(world, app, notify);
+          const seen = new Map([[pr.id, world.now.toISOString()]]);
+          world.advance(2 * DAY);
+          expect(unreadInInbox(app.entry(pr), seen, ME)).toBe(true);
+        }
+      },
+    },
+    {
+      situation: "it notifies once, and at start only when it came due after the last fetch",
+      run: async (world, app) => {
+        const pr = await waitingOnReview(world, app, true);
+        const lastFetch = world.now.toISOString();
+        world.advance(2 * DAY);
+        const now = [app.entry(pr)];
+        expect(dueReminders(now, null, lastFetch)).toHaveLength(1);
+        expect(dueReminders(now, null, world.now.toISOString())).toHaveLength(0);
+        expect(dueReminders(now, new Set([pr.id]), null)).toHaveLength(0);
+      },
+    },
+    {
+      situation: "D files it: out of the inbox, into the Done bar",
+      run: async (world, app) => {
+        const pr = await waitingOnReview(world, app, true);
+        world.advance(2 * DAY);
+        app.done(pr);
+        expect(ringing(app.entry(pr))).toBe(false);
+        expect(viewsOf(app.entry(pr))).toEqual(["authored", "done"]);
+      },
+    },
+    {
+      situation: "Later sets the follow-up anew, with Remind me",
+      run: async (world, app) => {
+        const pr = await waitingOnReview(world, app, true);
+        world.advance(2 * DAY);
+        app.snooze(pr, later(world, HOUR), true);
+        expect(app.entry(pr)).toMatchObject({ status: "snoozed", notify: true, asks: [] });
+        world.advance(2 * HOUR);
+        expect(ringing(app.entry(pr))).toBe(true);
+      },
+    },
+  ]);
+});
+
+describe("rule 10: an ask notifies only when it is newer than the fetch before", () => {
+  walk([
+    {
+      situation: "an item missing from a fetch comes back quietly with its old ask, a new mention notifies",
+      run: async (world, app) => {
+        const issue = await mentioned(world, app);
+        const lastFetch = world.now.toISOString();
+        const missing = new Map(app.classified().filter((c) => c.bucket === "inbox" && c.item.id !== issue.id).map((c) => [c.item.id, askKey(c)]));
+        world.advance(HOUR);
+        await app.refresh();
+        expect(arrivals(app.classified(), missing, lastFetch)).toEqual([]);
+        const other = world.issue();
+        world.comment(other, "bob", "@octocat a quick one?");
+        await app.refresh();
+        expect(arrivals(app.classified(), missing, lastFetch).map((c) => c.item.id)).toEqual([other.id]);
+      },
+    },
+  ]);
+});
+
+describe("rule 11: a reaction is no ask, no news and no answer", () => {
+  walk([
+    {
+      situation: "someone else's reaction on the description or a comment is no news and brings nothing back",
+      run: async (world, app) => {
+        const issue = world.issue({ author: ME, assignees: [ME, "bob"] });
+        const comment = world.comment(issue, "bob", "Pushed a fix");
+        world.advance(MINUTE);
+        await app.refresh();
+        const seen = new Map([[issue.id, world.now.toISOString()]]);
+        const before = viewsOf(app.entry(issue));
+        const inbox = new Map(app.classified().filter((c) => c.bucket === "inbox").map((c) => [c.item.id, askKey(c)]));
+        const lastFetch = world.now.toISOString();
+        world.advance(HOUR);
+        world.react(issue.id, "alice", "HEART");
+        world.react(comment, "alice", "ROCKET");
+        await refetch(world, app, issue);
+        expect(app.entry(issue).item.comments[0].reactions).toEqual([{ content: "ROCKET", count: 1, mine: false }]);
+        expect(viewsOf(app.entry(issue))).toEqual(before);
+        expect(hasNewActivity(app.entry(issue), seen, ME)).toBe(false);
+        expect(arrivals(app.classified(), inbox, lastFetch)).toEqual([]);
+      },
+    },
+    {
+      situation: "reacting to a mention answers nothing: it stays in the inbox",
+      run: async (world, app) => {
+        const issue = world.issue();
+        const ask = world.comment(issue, "alice", "@octocat could you look?");
+        await app.refresh();
+        world.advance(HOUR);
+        world.react(ask, ME, "THUMBS_UP");
+        await refetch(world, app, issue);
+        expect(app.entry(issue).item.comments[0].reactions).toEqual([{ content: "THUMBS_UP", count: 1, mine: true }]);
+        expect(viewsOf(app.entry(issue))).toEqual(["inbox"]);
+      },
+    },
   ]);
 });
 

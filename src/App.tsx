@@ -1,20 +1,22 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ghToken } from "./github/token";
-import { assignSelf, setOpen, unassignSelf, type CloseReason } from "./github/comment";
+import { assignSelf, setOpen, setReaction, unassignSelf, type CloseReason } from "./github/comment";
 import { snapshotOf } from "./handoff";
 import { queueWrite } from "./github/queue";
 import { sameLogin } from "./timeline";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Classified } from "./classify";
 import { handledStep } from "./handledUntil";
-import type { Status, StatusChange, StatusExtra, WriteFailure } from "./model";
+import type { LogEvent, ReactionContent, Status, StatusChange, StatusExtra, WriteFailure } from "./model";
 import { setLang, t, type MessageKey } from "./ui/i18n";
+import { REACTIONS, withReaction, withReactions } from "./ui/reactions";
 import { itemLink, statusHint, KINDS, nextOf, sortTime, statusesFor, viewOf, VIEWS, type KindFilter, type LinkFormat, type View } from "./ui/labels";
 import { covers, setCovered } from "./rules/directOnly";
 import { ContextMenu, type MenuEntry } from "./ui/parts/ContextMenu";
 import { OrcaMark } from "./ui/parts/OrcaMark";
 import { repoList } from "./ui/repoList";
 import { keyMenuAt, paneCenter } from "./ui/paneCenter";
+import type { MenuAt } from "./ui/menuPosition";
 import { useOrbLogins } from "./ui/avatarKinds";
 import { setOrbLooks } from "./ui/orbLookStore";
 import { assignLooks } from "./ui/orbLooks";
@@ -22,7 +24,7 @@ import { CalendarDay } from "./ui/parts/CalendarDay";
 import { chosenCalendar, findEvents, moveEvent, putEvent, removeEvent, writing, type CalendarEvent } from "./calendar";
 import { onDay } from "./ui/calendarSlot";
 import { SnoozeDatePicker } from "./ui/parts/SnoozeDatePicker";
-import { followUpOn, untilText } from "./ui/snooze";
+import { followUpOn, thisAfternoon, untilText } from "./ui/snooze";
 import { followUpExtra, followUpUnchanged, isWaiting } from "./ui/followUp";
 import { canSwitchDemo, isDemo, rememberDemo } from "./demo/flag";
 import { doneAccess, keepsItsPlan, needsAskChoice, planStatus, type Place } from "./ui/statusPlan";
@@ -49,7 +51,7 @@ import { useInbox } from "./ui/useInbox";
 import { useOrca } from "./ui/useOrca";
 import { addToOrca, openInOrca, pathText } from "./orca";
 import { useSelection } from "./ui/useSelection";
-import { assignedAt, withAssignees, withoutLocalEvent, withSelfAssigned, groupByRepo, groupByType, groupPlate, isActiveBar, isTypeGroup, leaveClears, localDay, moveBar, moveTypeBar, plateCount, type PlateGroup, type TableGroup, type TableGrouping } from "./ui/assignments";
+import { assignedAt, withAssignees, withoutLocalEvent, withSelfAssigned, withSelfUnassigned, groupByRepo, groupByType, groupPlate, isActiveBar, isTypeGroup, leaveClears, localDay, moveBar, moveTypeBar, plateCount, type PlateGroup, type TableGroup, type TableGrouping } from "./ui/assignments";
 import { choiceKey, choiceText, closedPlans, datedAt, datedOf, datedText, dayChoices, dayText, isPinnable, keepsPlan, orphanLinks, planOf, replan, retouch, rollOver, todayOf, unplan, withEvent, withPin, withPlan, without, type Today } from "./ui/plan";
 import { attributeOptions, combineAttributes, shownKeys, tableKeys } from "./ui/attributes";
 import { useCollapsed } from "./ui/useCollapsed";
@@ -68,6 +70,7 @@ import { authoredCount, groupAuthored } from "./ui/authored";
 import { setLogContext } from "./log";
 import { seenStep, unreadAssignment, unreadInInbox } from "./ui/unread";
 import { ASK_FILTERS, ASK_VIEWS, matchesAsk, type AskFilter } from "./ui/inboxFilter";
+import { hiddenUnread } from "./ui/hiddenUnread";
 import "./ui/styles/shell.css";
 import "./ui/styles/inbox.css";
 import "./ui/styles/detail.css";
@@ -76,6 +79,7 @@ import "./ui/styles/palette.css";
 type Dialog = "settings" | "palette" | "help" | "rules" | "keys" | null;
 
 const NO_HISTORY: StatusChange[] = [];
+const NO_EVENTS: LogEvent[] = [];
 const NO_FAILURES: WriteFailure[] = [];
 
 /** Group bars take part in the keyboard selection as "bar:<group>". */
@@ -86,6 +90,8 @@ const SEEN_AFTER_MS = 2500;
 
 /** No calendar links while no calendar is chosen; one object, so `dated` keeps its identity. */
 const NO_LINKS: Record<string, string> = {};
+const NO_REVEALS: ReadonlySet<string> = new Set();
+const LAUNCHED_AT = Date.now();
 
 /** A change with its undo, as the toasts take them. */
 type Step = { run: () => void; undo: () => void };
@@ -228,6 +234,24 @@ export default function App() {
     return inRepos.filter((c) => c.bucket === view);
   };
   const unreadCounts = useMemo(() => ({ inbox: unreadInboxIds.size, assigned: unreadPlateIds.size }), [unreadInboxIds, unreadPlateIds]);
+  // What the view's filters hide of the unread items its sidebar count announces; the views without a count hide nothing.
+  const hiding = useMemo(() => {
+    const ids = bucket === "inbox" ? unreadInboxIds : bucket === "assigned" ? unreadPlateIds : new Set<string>();
+    const unread = inRepos.filter((c) => ids.has(c.item.id));
+    const kinds = { options: KINDS.map((k) => k.id), chosen: kind, passes: (c: Classified, k: string) => k === "all" || c.item.kind === k };
+    const sprintOptions = ["all", "none", ...plateSprints.map((name) => `sprint:${name}`)];
+    const found =
+      bucket === "inbox"
+        ? hiddenUnread(unread, { ask: { options: ASK_FILTERS, chosen: ask, passes: (c, f) => matchesAsk(c, f as AskFilter, me) } })
+        : hiddenUnread(unread, { kind: kinds, sprint: { options: sprintOptions, chosen: sprints.assigned, passes: (c, s) => matchesSprint(c.item, s as SprintFilter, plateSprints, hidden) } });
+    // The hint only when no shown row is unread; otherwise the dots on the controls say enough.
+    return { ...found, hint: found.count === unread.length ? found.count : 0 };
+  }, [bucket, unreadInboxIds, unreadPlateIds, inRepos, ask, kind, me, plateSprints, sprints.assigned, hidden]);
+  const showHidden = () => {
+    setKind("all");
+    setAsk("all");
+    setSprints((current) => ({ ...current, assigned: "all" }));
+  };
   const movesUp = inbox.settings.movesUp;
   const rowTime = useCallback((c: Classified) => sortTime(c, me, movesUp), [me, movesUp]);
   // Planned lists everything with a date, soonest first; the sort button turns the dated ones around.
@@ -453,7 +477,7 @@ export default function App() {
     const previous = todayOf(inbox.settings);
     const at = new Date().toISOString();
     const next = on ? { ...unplan(previous, [c.item.id]), focusDay: localDay() } : withPin(previous, c.item.id, localDay(), at);
-    const steps = [todayStep([c.item.id], previous, next), ...(on ? eventEnds([c]) : [handled(c, at), ...seenOnOpen(c), ...followUpEnds(c), ...eventMoves(c, localDay())]), ...extra];
+    const steps = [todayStep([c.item.id], previous, next), logStep(c, on ? "plan-removed" : "plan", on ? undefined : localDay()), ...(on ? [...eventEnds([c]), unhandled(c)] : [handled(c, at), ...seenOnOpen(c), ...followUpEnds(c), ...eventMoves(c, localDay())]), ...extra];
     for (const s of steps) s.run();
     actions.announce(
       on ? t("focus.removed", { number: c.item.number }) : replacing(t("focus.added", { number: c.item.number }), endedFollowUp(c)),
@@ -467,7 +491,7 @@ export default function App() {
     undo: () => void inbox.updateSettings((s) => ({ ...s, ...retouch(todayOf(s), ids, previous) })),
   });
   /** An item has one "when": a plan or Today pin on a follow-up ends it, as a step; none when there is no follow-up. */
-  const followUpEnds = (c: Classified) => (isWaiting(c) ? [followUpStep(c)] : []);
+  const followUpEnds = (c: Classified) => (isWaiting(c) ? [followUpStep(c, true)] : []);
   /** What a plan or pin ends for the toast: the item's follow-up, with its date when it has one. */
   const endedFollowUp = (c: Classified) => (c.status !== "snoozed" ? null : c.until ? t("replaced.followUpAt", { until: untilText(c.until) }) : t("replaced.followUp"));
   /** What a follow-up ends for the toast: the item's Today pin or its plan. */
@@ -484,7 +508,7 @@ export default function App() {
     const at = new Date().toISOString();
     const next = withPlan(previous, c.item.id, day, at);
     const events = day ? eventMoves(c, day) : eventEnds([c]);
-    const steps = [todayStep([c.item.id], previous, next), ...(day ? [handled(c, at), ...seenOnOpen(c), ...followUpEnds(c)] : []), ...events, ...extra];
+    const steps = [todayStep([c.item.id], previous, next), logStep(c, day ? "plan" : "plan-removed", day ?? undefined), ...(day ? [handled(c, at), ...seenOnOpen(c), ...followUpEnds(c)] : [unhandled(c)]), ...events, ...extra];
     for (const s of steps) s.run();
     actions.announce(
       day ? replacing(t("plan.added", { number: c.item.number, day: text }), endedFollowUp(c)) : t(events.length > 0 ? "plan.removedEvent" : "plan.removed", { number: c.item.number }),
@@ -499,7 +523,9 @@ export default function App() {
   const keepPlan = (c: Classified, day: string | null) => {
     const previous = todayOf(inbox.settings);
     const at = new Date().toISOString();
-    bulk(day ? t("plan.kept", { number: c.item.number, day }) : t("plan.keptToday", { number: c.item.number }), [todayStep([c.item.id], previous, { ...previous, plannedAt: { ...previous.plannedAt, [c.item.id]: at } }), handled(c, at), ...seenOnOpen(c)]);
+    const when = dated(c);
+    const kept = logStep(c, "plan-kept", when?.kind === "planned" ? when.day : localDay());
+    bulk(day ? t("plan.kept", { number: c.item.number, day }) : t("plan.keptToday", { number: c.item.number }), [todayStep([c.item.id], previous, { ...previous, plannedAt: { ...previous.plannedAt, [c.item.id]: at } }), kept, handled(c, at), ...seenOnOpen(c)]);
   };
   /** The plan choices: "Keep plan" while a new ask shows a planned item in the inbox, Today (T), the days, a picked date and its removal (X). With a calendar, a day opens the day view on it, and "Today at a time" (A) joins. */
   const planEntries = (c: Classified): MenuEntry[] => {
@@ -632,7 +658,7 @@ export default function App() {
     });
   /** P on an item: the plan choices open below its row, like the follow-up ones, or below the detail's Plan button. */
   const plan = (c: Classified, at?: DOMRect) =>
-    pinnable(c) ? setMenu({ of: { id: c.item.id, kind: "plan" }, fit: true, ...(at ? { x: at.left, y: at.bottom + 4 } : { ...paneCenter(), centered: true }) }) : actions.notify(t("noop.notPlannable", { number: c.item.number }));
+    pinnable(c) ? setMenu({ of: { id: c.item.id, kind: "plan" }, fit: true, ...(at ? { anchor: at } : { ...paneCenter(), centered: true }) }) : actions.notify(t("noop.notPlannable", { number: c.item.number }));
 
   /** Stops tracking an item for good, with undo; the settings list it for tracking again. */
   const untrack = (c: Classified) => {
@@ -654,14 +680,19 @@ export default function App() {
     rememberDemo(!isDemo());
     window.location.reload();
   };
-  const [menu, setMenu] = useState<{ entries?: MenuEntry[]; of?: { id: string; kind: "item" | "plan" }; x: number; y: number; centered?: boolean; centerX?: boolean; fit?: boolean } | null>(null);
+  const [menu, setMenu] = useState<(MenuAt & { entries?: MenuEntry[]; of?: { id: string; kind: "item" | "plan" }; fit?: boolean }) | null>(null);
   /** A menu of one item is built from the item as it is now, not as it was when the menu opened. */
   const menuItem = menu?.of ? inbox.classified.find((c) => c.item.id === menu.of?.id) : undefined;
-  const [snoozeMenu, setSnoozeMenu] = useState<{ entry: Classified; x: number; y: number; centered?: boolean; centerX?: boolean } | null>(null);
+  const [snoozeMenu, setSnoozeMenu] = useState<(MenuAt & { entry: Classified }) | null>(null);
   const snoozeItem = snoozeMenu ? inbox.classified.find((c) => c.item.id === snoozeMenu.entry.item.id) : undefined;
+  // "Remind me" as flipped in the open follow-up menu, until a choice stores it; else the item's own.
+  const [notifyChoice, setNotifyChoice] = useState<{ id: string; on: boolean } | null>(null);
   // An item that left the list takes its menu along, so the menu cannot come back with it.
-  if (menu?.of && !menuItem) setMenu(null);
-  if (snoozeMenu && !snoozeItem) setSnoozeMenu(null);
+  if ((menu?.of && !menuItem) || (snoozeMenu && !snoozeItem)) {
+    if (menu?.of && !menuItem) setMenu(null);
+    if (snoozeMenu && !snoozeItem) setSnoozeMenu(null);
+    if (notifyChoice) setNotifyChoice(null);
+  }
   const [calendarFor, setCalendarFor] = useState<{ c: Classified; linked: CalendarEvent | null; day: string } | null>(null);
   const [pickingDate, setPickingDate] = useState<{ pick: (until: string) => void; day?: boolean } | null>(null);
   /** Runs one change on several items, with one toast and one undo for all of them. */
@@ -680,10 +711,16 @@ export default function App() {
     const previous = inbox.settings.filedAt[id];
     const at = new Date().toISOString();
     const handling = handled(c, at);
+    const filed = logStep(c, "filed");
     return {
-      run: () => (handling.run(), void inbox.updateSettings((s) => ({ ...s, filedAt: { ...s.filedAt, [id]: at } }))),
-      undo: () => (handling.undo(), void inbox.updateSettings((s) => ({ ...s, filedAt: previous ? { ...s.filedAt, [id]: previous } : without(s.filedAt, id) }))),
+      run: () => (handling.run(), filed.run(), void inbox.updateSettings((s) => ({ ...s, filedAt: { ...s.filedAt, [id]: at } }))),
+      undo: () => (handling.undo(), filed.undo(), void inbox.updateSettings((s) => ({ ...s, filedAt: previous ? { ...s.filedAt, [id]: previous } : without(s.filedAt, id) }))),
     };
+  };
+  /** A line in the item's log, as a step whose undo drops it again. */
+  const logStep = (c: Classified, kind: LogEvent["kind"], value?: string) => {
+    const event: LogEvent = { kind, at: new Date().toISOString(), ...(value && { value }) };
+    return { run: () => void inbox.logEvent(c.item.id, event), undo: () => void inbox.logEvent(c.item.id, event, true) };
   };
   /** D in the inbox, P, T and F mark the item handled until `at`, as a step (see `handledStep`). */
   const handled = (c: Classified, at = new Date().toISOString()) => handledStep(c.item.id, inbox.handledUntil.get(c.item.id), at, inbox.setHandledUntil);
@@ -699,12 +736,17 @@ export default function App() {
     { label: t("askChoice.file"), hint: t("hint.askChoice.file"), keys: "D", onSelect: () => choose("file") },
   ];
   const hasFollowUp = (c: Classified) => c.status === "snoozed";
-  /** Takes the follow-up off an item; a finished part stays done (see `afterFollowUp`). Undo puts back exactly what was stored. */
-  const followUpStep = (c: Classified) => {
+  /** Takes the follow-up off an item; a finished part stays done (see `afterFollowUp`). Undo puts back exactly what was stored. `replaced` keeps it out of the timeline, where the new plan tells it. */
+  const followUpStep = (c: Classified, replaced = false) => {
     const previous = inbox.statuses.get(c.item.id);
-    return { run: () => void inbox.endFollowUp(c.item.id), undo: () => void inbox.restoreStatus(c.item.id, previous) };
+    return { run: () => void inbox.endFollowUp(c.item.id, replaced ? "hidden" : undefined), undo: () => void inbox.restoreStatus(c.item.id, previous) };
   };
-  const removeFollowUp = (c: Classified) => bulk(t("toast.reminderRemoved", { number: c.item.number }), [followUpStep(c)]);
+  const removeFollowUp = (c: Classified) => bulk(t("toast.followUpRemoved", { number: c.item.number }), [followUpStep(c), ...(c.updates ? [] : [unhandled(c)])]);
+  /** X gives back what a follow-up or plan handled: handled-until goes, so what is still pending asks again, as at a due date. */
+  const unhandled = (c: Classified) => {
+    const previous = inbox.handledUntil.get(c.item.id);
+    return { run: () => void inbox.setHandledUntil(c.item.id, null), undo: () => void inbox.setHandledUntil(c.item.id, previous ?? null) };
+  };
   /** X on one item: its plan or Today pin goes, else its follow-up. */
   const removeWhen = (c: Classified) =>
     dated(c) ? planFor(c, null, "") : hasFollowUp(c) ? removeFollowUp(c) : actions.notify(t("noop.noFollowUp", { number: c.item.number }));
@@ -732,7 +774,7 @@ export default function App() {
     setMenu({
       entries: [
         ...(reading ? [{ label: t(anyUnread ? "view.markAllRead" : "view.markAllUnread"), icon: anyUnread ? <MailOpen size={14} /> : <Mail size={14} />, onSelect: () => toggleRead(items) }] : []),
-        { label: t("view.refresh"), icon: <RefreshCw size={14} />, onSelect: () => void refreshView(inbox.settings.refreshInRepos && repoFilter.length > 0 ? items.filter((c) => repoFilter.includes(c.item.repo)) : items) },
+        { label: t("view.refresh"), icon: <RefreshCw size={14} />, onSelect: () => void refreshView(repoFilter.length > 0 ? items.filter((c) => repoFilter.includes(c.item.repo)) : items) },
       ],
       x: e.clientX,
       y: e.clientY,
@@ -809,7 +851,7 @@ export default function App() {
     switch (plan.do) {
       case "resume":
         // The work opens again; a follow-up stays, as work and when are apart.
-        return change(t("toast.resumed", { number }), () => void (c.status === "snoozed" ? inbox.setStatus(id, "snoozed", c.until ? { until: c.until } : {}) : inbox.clearStatus(id)));
+        return change(t("toast.resumed", { number }), () => void (c.status === "snoozed" ? inbox.setStatus(id, "snoozed", c.until ? { until: c.until, ...(c.notify && { notify: true }) } : {}, "resumed") : inbox.clearStatus(id, undefined, "resumed")));
       case "hand-off": {
         moveOn(id);
         if (asks !== "file" || c.asks.length === 0) return change(t("toast.handedOff", { number }), hand);
@@ -817,9 +859,10 @@ export default function App() {
         return change(t("toast.handedOffFiled", { number }), () => (hand(), filing.run()), filing.undo);
       }
       case "clear": {
-        if (bucket === "snoozed") return change(t("toast.reminderRemoved", { number }), () => void inbox.endFollowUp(id));
+        if (bucket === "snoozed") return change(t("toast.followUpRemoved", { number }), () => void inbox.endFollowUp(id));
         const handling = handled(c);
-        return change(t("toast.filed", { number }), () => (handling.run(), void inbox.clearStatus(id)), handling.undo);
+        const filed = logStep(c, "filed");
+        return change(t("toast.filed", { number }), () => (handling.run(), filed.run(), void inbox.clearStatus(id, undefined, "hidden")), () => (handling.undo(), filed.undo()));
       }
       case "blocked":
         return;
@@ -833,11 +876,11 @@ export default function App() {
         return c.updates ? actions.notify(t("toast.partAlreadyDone", { number })) : undefined;
     }
   };
-  /** A follow-up for one item, with or without a date; its plan or Today pin goes with it, since an item has one "when". */
-  const followUp = (c: Classified, until: string) => {
+  /** A follow-up for one item, with or without a date and with "Remind me" as `notify`; its plan or Today pin goes with it, since an item has one "when". */
+  const followUp = (c: Classified, until: string, notify = false) => {
     if (c.item.closed) return actions.notify(t("closed.noStatus", { number: c.item.number }));
-    if (followUpUnchanged(c, until)) return;
-    const steps = [...unplanStep([c]), statusStep(c, "snoozed", followUpExtra(c, until)), handled(c), ...seenOnOpen(c)];
+    if (followUpUnchanged(c, until, notify)) return;
+    const steps = [...unplanStep([c]), statusStep(c, "snoozed", followUpExtra(c, until, notify)), handled(c), ...seenOnOpen(c)];
     for (const s of steps) s.run();
     actions.announce(
       replacing(until ? t("toast.snoozedUntil", { number: c.item.number, until: untilText(until) }) : t("toast.snoozed", { number: c.item.number }), endedPlan(c)),
@@ -845,13 +888,19 @@ export default function App() {
       () => steps.forEach((s) => s.run()),
     );
   };
-  /** The follow-up choices for one item: the days of Plan at the "followUpTime", a picked date, none, and its removal (X). */
-  const snoozeEntries = (c: Classified): MenuEntry[] => [
-    ...dayEntries((day) => followUp(c, followUpOn(day, inbox.settings.followUpTime)), c.status === "snoozed" && c.until ? localDay(new Date(c.until)) : undefined),
-    { label: t("snooze.pick"), keys: "D", divided: true, onSelect: () => setPickingDate({ pick: (until) => followUp(c, until) }) },
-    { label: t("snooze.none"), hint: t("hint.snooze.none"), keys: "F", checked: c.status === "snoozed" && !c.until, onSelect: () => followUp(c, "") },
-    { label: t("reminder.remove"), keys: "X", divided: true, disabled: !hasFollowUp(c), onSelect: () => removeFollowUp(c) },
-  ];
+  /** The follow-up choices for one item: "Remind me" (R, stored at once on a dated follow-up, else with the date chosen next), this afternoon (A) before 14:00, the days of Plan at the "followUpTime", a picked date, none, and its removal (X). */
+  const snoozeEntries = (c: Classified): MenuEntry[] => {
+    const notify = notifyChoice?.id === c.item.id ? notifyChoice.on : !!c.notify;
+    const afternoon = thisAfternoon();
+    return [
+      { label: t("snooze.notify"), hint: t("hint.snooze.notify"), keys: "R", checked: notify, keepOpen: true, onSelect: () => (c.status === "snoozed" && c.until ? followUp(c, c.until, !notify) : setNotifyChoice({ id: c.item.id, on: !notify })) },
+      ...(afternoon ? [{ label: t("snooze.afternoon"), keys: "A", divided: true, checked: c.status === "snoozed" && c.until === afternoon, onSelect: () => followUp(c, afternoon, notify) }] : []),
+      ...dayEntries((day) => followUp(c, followUpOn(day, inbox.settings.followUpTime), notify), c.status === "snoozed" && c.until ? localDay(new Date(c.until)) : undefined).map((e, i) => (i === 0 && !afternoon ? { ...e, divided: true } : e)),
+      { label: t("snooze.pick"), keys: "D", divided: true, onSelect: () => setPickingDate({ pick: (until) => followUp(c, until, notify) }) },
+      { label: t("snooze.none"), hint: t("hint.snooze.none"), keys: "F", checked: c.status === "snoozed" && !c.until, onSelect: () => followUp(c, "") },
+      { label: t("followUp.remove"), keys: "X", divided: true, disabled: !hasFollowUp(c), onSelect: () => removeFollowUp(c) },
+    ];
+  };
   /** F on an item: the follow-up choices open below its row, also to move the date. */
   const snooze = (c: Classified) => {
     if (c.item.closed) return actions.apply(c, "snoozed");
@@ -888,18 +937,15 @@ export default function App() {
         () => classifiedById(id) && assignMe(classifiedById(id)!, true),
       );
     const at = new Date().toISOString();
-    inbox.updateItem(id, (item) => withSelfAssigned(item, me, at));
-    void queueWrite(() =>
-      ghToken()
-        .then((token) => assignSelf(token, id))
-        .then(
-          (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
-          (e) => {
-            inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
-            void inbox.logWriteFailure(id, "assign", String(e));
-            actions.notify(t("assign.failed", { number, error: String(e) }));
-          },
-        ),
+    const write = queueWrite(() => ghToken().then((token) => assignSelf(token, id)));
+    inbox.updateItem(id, (item) => withSelfAssigned(item, me, at), write);
+    write.then(
+      (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
+      (e) => {
+        inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
+        void inbox.logWriteFailure(id, "assign", String(e));
+        actions.notify(t("assign.failed", { number, error: String(e) }));
+      },
     );
   };
   /** The item as classified right now; an undo that runs later must not see the list of the render that made it. */
@@ -918,12 +964,6 @@ export default function App() {
     const cleared = !keepStatus && leaveClears(previous);
     if (cleared) void inbox.clearStatus(id);
     const at = new Date().toISOString();
-    inbox.updateItem(id, (item) => ({
-      ...item,
-      assignees: item.assignees.filter((a) => !sameLogin(a, me)),
-      reasons: item.reasons.filter((r) => r !== "assigned"),
-      activities: [...item.activities, { kind: "unassigned", at, actor: me, assignee: me }],
-    }));
     const text = t("unassign.done", { number });
     if (quiet) actions.notify(text);
     else
@@ -939,18 +979,41 @@ export default function App() {
           if (now) leave(now, true);
         },
       );
-    void queueWrite(() =>
-      ghToken()
-        .then((token) => unassignSelf(token, id))
-        .then(
-          (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
-          (e) => {
-            inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
-            if (cleared) void inbox.restoreStatus(id, previous);
-            void inbox.logWriteFailure(id, "unassign", String(e));
-            actions.notify(t("unassign.failed", { number, error: String(e) }));
-          },
-        ),
+    const write = queueWrite(() => ghToken().then((token) => unassignSelf(token, id)));
+    inbox.updateItem(id, (item) => withSelfUnassigned(item, me, at), write);
+    write.then(
+      (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
+      (e) => {
+        inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
+        if (cleared) void inbox.restoreStatus(id, previous);
+        void inbox.logWriteFailure(id, "unassign", String(e));
+        actions.notify(t("unassign.failed", { number, error: String(e) }));
+      },
+    );
+  };
+  /**
+   * Adds or takes back the viewer's reaction on a post of item `id`: at once here, then on GitHub,
+   * queued; GitHub's counts replace the local guess. A failure takes the guess back, logs it in the
+   * item's timeline and says so. Undo sends the opposite write through the same queue.
+   */
+  const react = (id: string, number: number, subject: string, content: ReactionContent, on: boolean, quiet = false) => {
+    const text = t(on ? "reaction.added" : "reaction.removed", { number, emoji: REACTIONS[content] });
+    if (quiet) actions.notify(text);
+    else
+      actions.announce(
+        text,
+        () => react(id, number, subject, content, !on, true),
+        () => react(id, number, subject, content, on, true),
+      );
+    const write = queueWrite(() => ghToken().then((token) => setReaction(token, subject, content, on)));
+    inbox.updateItem(id, (item) => withReaction(item, subject, content, on), write);
+    write.then(
+      (fresh) => inbox.updateItem(id, (item) => withReactions(item, subject, fresh)),
+      (e) => {
+        inbox.updateItem(id, (item) => withReaction(item, subject, content, !on));
+        void inbox.logWriteFailure(id, "react", String(e));
+        actions.notify(t("reaction.failed", { number, error: String(e) }));
+      },
     );
   };
   /** After a comment, close or reopen went to GitHub: load the item again; a close or reopen can be undone with the opposite write, an undone close with the item's plan. */
@@ -1016,7 +1079,7 @@ export default function App() {
     const statuses: MenuEntry[] = statusesFor(c, doneIn(c) === "closed")
       .filter((s) => !(s.id === "done" && doneIn(c) === "hidden"))
       .map((s) => ({
-      label: doneKind(s.id, c) === "handOff" ? t("action.handOff") : doneKind(s.id, c) === "file" ? t("action.file") : doneKind(s.id, c) === "clear" ? t("reminder.remove") : s.title,
+      label: doneKind(s.id, c) === "handOff" ? t("action.handOff") : doneKind(s.id, c) === "file" ? t("action.file") : doneKind(s.id, c) === "clear" ? t("followUp.remove") : s.title,
       hint: statusHint(doneKind(s.id, c)),
       keys: s.key,
       icon: <StatusIcon status={s.id} size={14} />,
@@ -1031,11 +1094,11 @@ export default function App() {
       ...planItem,
       ...statuses.slice(1),
       ...(leavable(c) ? [{ label: t("unassign.action"), keys: "⌃U", icon: <UserMinus size={14} />, onSelect: () => leave(c) }] : []),
-      ...(hasFollowUp(c) ? [{ label: t("reminder.remove"), keys: "X", icon: <X size={14} />, onSelect: () => removeFollowUp(c) }] : []),
+      ...(hasFollowUp(c) ? [{ label: t("followUp.remove"), keys: "X", icon: <X size={14} />, onSelect: () => removeFollowUp(c) }] : []),
       ...(planned ? [{ label: t("plan.remove"), keys: "X", icon: <X size={14} />, onSelect: () => planFor(c, null, "") }] : []),
       { label: t(isUnread(c) ? "menu.markRead" : "menu.markUnread"), keys: "R", icon: isUnread(c) ? <MailOpen size={14} /> : <Mail size={14} />, onSelect: () => toggleRead([c]) },
       ...(assignable(c) ? [{ label: t("assign.action"), keys: "⌃A", icon: <UserPlus size={14} />, divided: true, onSelect: () => assignMe(c) }] : []),
-      { label: t("action.openOnGitHub"), keys: "⌃O", icon: <ExternalLink size={14} />, divided: !assignable(c), onSelect: () => void openUrl(item.url) },
+      { label: t("action.openOnGitHub"), keys: "G", icon: <ExternalLink size={14} />, divided: !assignable(c), onSelect: () => void openUrl(item.url) },
       ...(orcaOffered(c) ? [{ label: t(orca.repoOf(item.repo) ? "orca.open" : "orca.addOpen"), hint: t(orca.repoOf(item.repo) ? "hint.orca.open" : "hint.orca.addOpen"), keys: "W", icon: <OrcaMark size={16} />, onSelect: () => runOrca(c) }] : []),
       { label: t("menu.copyLink"), keys: "C", icon: <Link size={14} />, onSelect: () => void copy(itemLink(item, "url")) },
       { label: t("menu.copyRef"), hint: t("hint.menu.copyRef"), icon: <Hash size={14} />, onSelect: () => void copy(itemLink(item, "ref")) },
@@ -1063,6 +1126,16 @@ export default function App() {
     const timer = window.setInterval(check, 5 * 60_000);
     return () => window.clearInterval(timer);
   }, [ready, settings, saveSettings, classified, me]);
+
+  // Once per launch and day, after this launch's first refresh, GitHub is asked about pinned or planned items not loaded (`dropGone`).
+  const { reloadItems, loading, fetchedAt } = inbox;
+  const goneChecked = useRef("");
+  useEffect(() => {
+    if (!ready || loading || !fetchedAt || fetchedAt.getTime() < LAUNCHED_AT || goneChecked.current === today) return;
+    goneChecked.current = today;
+    const unloaded = [...settings.focus, ...settings.planned.map((p) => p.id)].filter((id) => !classified.some((c) => c.item.id === id));
+    if (unloaded.length > 0) void reloadItems(unloaded);
+  }, [ready, loading, fetchedAt, today, settings, classified, reloadItems]);
 
   // A plan of an item closed on GitHub goes at once, not with the next day.
   const changeSettings = inbox.updateSettings;
@@ -1126,7 +1199,7 @@ export default function App() {
       r: withCurrent((c) => toggleRead([c])),
       "mod+z": actions.undo,
       "mod+y": actions.redo,
-      "ctrl+o": withCurrent((c) => void openUrl(c.item.url)),
+      g: withCurrent((c) => void openUrl(c.item.url)),
       w: withCurrent(runOrca),
       "ctrl+a": withCurrent(assignMe),
       "ctrl+u": withCurrent((c) => leave(c)),
@@ -1175,15 +1248,20 @@ export default function App() {
     if (entry) jumpTo(entry);
     else setBucket("inbox");
   };
-  const { notifyDelivery, notifyCollected, notifyLastSummary } = inbox.settings;
+  const { notifyDelivery, notifyCollected, notifyLastSummary, notifyRangAt } = inbox.settings;
   const notifyOptions = { on: inbox.settings.notifications, reasons: inbox.settings.notifyOn, inFront: inbox.settings.notifyInFront, delivery: notifyDelivery };
-  const pending = { collected: notifyCollected, lastSummary: notifyLastSummary };
+  const pending = { collected: notifyCollected, lastSummary: notifyLastSummary, rangAt: notifyRangAt };
   const savePending = (change: (current: Pending) => Pending) =>
     void inbox.updateSettings((s) => {
-      const next = change({ collected: s.notifyCollected, lastSummary: s.notifyLastSummary });
-      return { ...s, notifyCollected: next.collected, notifyLastSummary: next.lastSummary };
+      const next = change({ collected: s.notifyCollected, lastSummary: s.notifyLastSummary, rangAt: s.notifyRangAt });
+      return { ...s, notifyCollected: next.collected, notifyLastSummary: next.lastSummary, notifyRangAt: next.rangAt };
     });
-  useAttention(inbox.classified, badgeIds, notifyOptions, inbox.settings.dockBadge, openNotified, pending, savePending);
+  const laterNotified = (itemId: string, until: string) => {
+    const entry = inbox.classified.find((c) => c.item.id === itemId);
+    if (entry) followUp(entry, until, true);
+  };
+  const reminderOptions = { since: inbox.fetchedAt, workdays: inbox.settings.workdays, followUpTime: inbox.settings.followUpTime, onLater: laterNotified };
+  useAttention(inbox.classified, badgeIds, notifyOptions, inbox.settings.dockBadge, openNotified, pending, savePending, reminderOptions);
 
   const orbLogins = useOrbLogins();
   const { orbLooks } = inbox.settings;
@@ -1205,8 +1283,6 @@ export default function App() {
         counts={viewCounts}
         unread={unreadCounts}
         repos={repos}
-        viewCounts={inbox.settings.viewCounts}
-        repoCounts={inbox.settings.repoCounts}
         repoFilter={repoFilter}
         me={inbox.me}
         myName={inbox.myName}
@@ -1215,6 +1291,7 @@ export default function App() {
         calendarAccess={calendarAccess}
         loading={inbox.loading}
         fetchedAt={inbox.fetchedAt}
+        cut={inbox.cut}
         error={inbox.error}
         pausedUntil={inbox.pausedUntil}
         usage={inbox.usage}
@@ -1274,6 +1351,9 @@ export default function App() {
           searchRef={searchRef}
           kind={kind}
           onKind={setKind}
+          reveals={{ kind: hiding.reveals.kind ?? NO_REVEALS, sprint: hiding.reveals.sprint ?? NO_REVEALS }}
+          hiddenUnread={hiding.hint}
+          onShowHidden={showHidden}
           sort={sort.of(bucket)}
           onSort={() => sort.flip(bucket)}
           selected={selection.selected}
@@ -1306,6 +1386,9 @@ export default function App() {
           ask={ask}
           askCounts={askCounts}
           onAsk={setAsk}
+          reveals={hiding.reveals.ask ?? hiding.reveals.kind ?? NO_REVEALS}
+          hiddenUnread={hiding.hint}
+          onShowHidden={showHidden}
           sort={sort.of(bucket)}
           onSort={() => sort.flip(bucket)}
           timeGroups={timeGroups}
@@ -1318,7 +1401,6 @@ export default function App() {
           selectedGroup={selectedBar}
           selected={selection.selected}
           loading={inbox.loading}
-          avatars={inbox.settings.avatars}
           onSelect={selection.select}
           onOpen={(c) => void openUrl(c.item.url)}
         />
@@ -1338,6 +1420,7 @@ export default function App() {
             datedOf={dated}
             hiddenBoards={inbox.settings.hiddenBoards}
             history={(current && inbox.statusLog.get(current.item.id)) ?? NO_HISTORY}
+            events={(current && inbox.itemLog.get(current.item.id)) ?? NO_EVENTS}
             failures={(current && inbox.writeFailures.get(current.item.id)) ?? NO_FAILURES}
             seenAt={current ? (inbox.seen.get(current.item.id) ?? null) : null}
             note={current ? (inbox.notes.get(current.item.id) ?? "") : ""}
@@ -1346,7 +1429,6 @@ export default function App() {
             statusMap={inbox.settings.statusMap}
             recentComments={inbox.settings.recentComments}
             botComments={inbox.settings.botComments}
-            stickyReply={inbox.settings.stickyReply}
             openAt={inbox.settings.openAt}
             descriptionMode={inbox.settings.descriptionMode}
             onReplied={replied}
@@ -1358,9 +1440,10 @@ export default function App() {
             orcaHint={current ? orcaHint(current) : undefined}
             onAssignMe={() => current && assignMe(current)}
             onPlan={(at: DOMRect) => current && plan(current, at)}
-            onSnooze={(at: DOMRect) => current && setSnoozeMenu({ entry: current, x: at.left, y: at.bottom + 4 })}
+            onSnooze={(at: DOMRect) => current && setSnoozeMenu({ entry: current, anchor: at })}
             onRemoveFollowUp={() => current && removeFollowUp(current)}
             reloading={reloading === current?.item.id}
+            onReact={(subject, content, on) => current && react(current.item.id, current.item.number, subject, content, on)}
           />
         </>
       )}
@@ -1374,6 +1457,7 @@ export default function App() {
                 datedOf={dated}
                 hiddenBoards={inbox.settings.hiddenBoards}
                 history={(current && inbox.statusLog.get(current.item.id)) ?? NO_HISTORY}
+            events={(current && inbox.itemLog.get(current.item.id)) ?? NO_EVENTS}
                 failures={(current && inbox.writeFailures.get(current.item.id)) ?? NO_FAILURES}
                 seenAt={current ? (inbox.seen.get(current.item.id) ?? null) : null}
                 note={current ? (inbox.notes.get(current.item.id) ?? "") : ""}
@@ -1382,7 +1466,6 @@ export default function App() {
                 statusMap={inbox.settings.statusMap}
                 recentComments={inbox.settings.recentComments}
                 botComments={inbox.settings.botComments}
-                stickyReply={inbox.settings.stickyReply}
                 openAt={inbox.settings.openAt}
                 descriptionMode={inbox.settings.descriptionMode}
                 onReplied={replied}
@@ -1394,9 +1477,10 @@ export default function App() {
             orcaHint={current ? orcaHint(current) : undefined}
             onAssignMe={() => current && assignMe(current)}
             onPlan={(at: DOMRect) => current && plan(current, at)}
-            onSnooze={(at: DOMRect) => current && setSnoozeMenu({ entry: current, x: at.left, y: at.bottom + 4 })}
+            onSnooze={(at: DOMRect) => current && setSnoozeMenu({ entry: current, anchor: at })}
             onRemoveFollowUp={() => current && removeFollowUp(current)}
             reloading={reloading === current?.item.id}
+            onReact={(subject, content, on) => current && react(current.item.id, current.item.number, subject, content, on)}
                 onClose={closePopup}
               />
           </div>
@@ -1409,9 +1493,9 @@ export default function App() {
         </div>
       )}
       <Toast toast={actions.toast} />
-      {menu && menuEntriesNow && <ContextMenu x={menu.x} y={menu.y} centered={menu.centered} centerX={menu.centerX} fit={menu.fit} entries={menuEntriesNow} onClose={() => setMenu(null)} />}
+      {menu && menuEntriesNow && <ContextMenu {...menu} entries={menuEntriesNow} onClose={() => (setMenu(null), setNotifyChoice(null))} />}
       {snoozeMenu && (
-        <ContextMenu x={snoozeMenu.x} y={snoozeMenu.y} centered={snoozeMenu.centered} centerX={snoozeMenu.centerX} fit entries={snoozeEntries(snoozeItem ?? snoozeMenu.entry)} onClose={() => setSnoozeMenu(null)} />
+        <ContextMenu {...snoozeMenu} fit entries={snoozeEntries(snoozeItem ?? snoozeMenu.entry)} onClose={() => (setSnoozeMenu(null), setNotifyChoice(null))} />
       )}
       {calendarFor && (
         <CalendarDay
@@ -1484,7 +1568,7 @@ export default function App() {
         <SettingsDialog
           settings={inbox.settings}
           welcome={welcome}
-          onSave={(s) => void inbox.updateSettings((current) => ({ ...current, ...s, notifyCollected: current.notifyCollected, notifyLastSummary: current.notifyLastSummary }))}
+          onSave={(s) => void inbox.updateSettings((current) => ({ ...current, ...s, notifyCollected: current.notifyCollected, notifyLastSummary: current.notifyLastSummary, notifyRangAt: current.notifyRangAt }))}
           onClose={() => setDialog(null)}
           boards={boards}
           memberOrgs={inbox.memberOrgs}

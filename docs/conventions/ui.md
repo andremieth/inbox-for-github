@@ -1,5 +1,8 @@
 # UI conventions
 
+The values for type, corners, heights and the building blocks are in
+[`style-guide.md`](style-guide.md); this page covers tokens, contrast, texts and keys.
+
 ## Design tokens
 
 All colors, radii, fonts and shadows are CSS custom properties in `src/ui/styles/tokens.css`,
@@ -13,11 +16,12 @@ Notable tokens:
 |---|---|
 | `--text`, `--text-muted`, `--text-faint` | text levels; lists and detail use `--text-content` (slightly dimmer, about 12:1 in both themes) |
 | `--border`, `--border-strong` | quiet and visible lines; cards, inputs and dropdowns use `--border` (`--border-strong` on hover), chips `--border-strong` |
-| `--hover`, `--selected` | row and button backgrounds |
+| `--hover`, `--selected` | row and button backgrounds; menus highlight with `--selected` |
+| `--control-fill`, `--control-hover` | filled controls (header buttons, segmented tracks, the search bar) and their hover |
 | `--focus-fill` | keyboard focus fill, 3:1 against the panel |
 | `--segment-fill` | the active part of a date or time field; softer by choice, below 3:1 |
 | `--yellow`, `--green`, `--blue`, `--red`, `--purple`, `--pink` | the only tone of each hue; AA as text in both themes, except light yellow (3:1, icons and dots only) |
-| `--st-*`, `--new`, `--mention` | status roles, aliases of a hue above; never a value of their own |
+| `--st-*`, `--new`, `--mention`, `--unread` | status roles, aliases of a hue above; never a value of their own; `--unread` is the blue of the unread dot |
 | `--green-fill` | filled green under white text (comment button, switches); the light green in both themes |
 | `--orange` | dots and decoration only (GitHub Projects options, the dev stripe) |
 | `--radius-s/m/l` | 4, 6, 10 px |
@@ -44,12 +48,12 @@ darkens instead.
 - Chips, pills and labels are fully rounded (`border-radius: 999px`).
 - A highlight inside a rounded container matches the container's inner radius
   (`calc(var(--radius-m) - 1px)` inside a 1px border).
-- Items of one kind are equally tall wherever they appear: in the settings every control is
+- Items of one kind are equally tall wherever they appear: in every dialog each control is
   `--control-h` (30 px) and every row with a switch at least `--row-h`, with or without a hint.
   The organization dropdown is the one larger control (40 px), as it carries an avatar and a count.
 - A segmented control picks one option; one where several can be on (weekdays) is
   `.segmented.multi`, whose options stand apart with a gap.
-- Controls in a list or table header are greyed out (`disabled`, `--text-faint`) when they have
+- Controls in a list or table header are greyed out (`disabled`, dimmed to 50 % like every disabled control) when they have
   nothing to act on, never hidden, so the others keep their place. Counts in a switch show 0.
 - A scroll area keeps its left padding; a visible scrollbar takes the place of the right one
   (`useGutter` sets `--gutter`, CSS uses `max(0px, calc(<padding> - var(--gutter, 0px)))`), so
@@ -67,8 +71,10 @@ darkens instead.
   (`help.*`, `keys.*`) that mentions the calendar, which Windows does not have. The dictionaries'
   own texts stay as they are.
 - A row's context line names the person who wants something from the viewer: who mentioned,
-  asked for the review, pushed or assigned them (`rowContext`). Only when GitHub does not say,
-  e.g. a commit without a linked user, does the line go without a name.
+  asked for the review, pushed, reopened or assigned them (`rowContext`). In the inbox it names
+  the newest ask, the one the row is dated by and the explanation starts with. Only when GitHub
+  does not say, e.g. a commit without a linked user, does the line go without a name. It carries
+  no repository: the row's tooltip, the detail and the sidebar filter have it.
 
 ## Keyboard
 
@@ -96,7 +102,7 @@ A key is a letter of its entry's English label, in both languages: N for "Next w
 that offer the same choice use the same key for it, as Plan (P) and Follow-up (F) do through
 `dayChoices`.
 
-Taken today: ↑/↓ (J/K are deliberately unused), ←/→, 1–5, T, D, O, F, X, U, R, P, W, ⌃A, ⌃U, ⌃O, ⌃R, C, Space, Enter, Escape, ⌘Z, ⌘Y, ⌘R, ⇧⌘R, ⌘T, ⌘G,
+Taken today: ↑/↓ (J/K are deliberately unused), ←/→, 1–5, T, D, O, F, X, U, R, P, W, G, ⌃A, ⌃U, ⌃R, C, Space, Enter, Escape, ⌘Z, ⌘Y, ⌘R, ⇧⌘R, ⌘T, ⌘G,
 ⌘K, ⌘F, ⌘,, ?. A new shortcut MUST also appear in the help (`Help.tsx`, "Shortcuts") and, where it
 acts on an item, in the right-click menu and the palette.
 
@@ -107,6 +113,6 @@ acts on an item, in the right-click menu and the palette.
 | `ContextMenu` | right-click menus and key-driven menus (snooze choices); submenus via `items` |
 | `Toast` via `useStatusActions` | feedback with undo (`apply`, `announce`, `notify`) |
 | `SortButton`, segmented controls (`.segmented`) | header switches |
-| `Resizer`, `useStoredSize` | draggable sizes remembered locally |
+| `Resizer`, `useColumnWidths` | draggable column widths remembered locally |
 | `ErrorBoundary` | the crash page around the app |
 | `Avatar` | GitHub avatars; identicons become gradient orbs |
