@@ -8,8 +8,9 @@ import { compactAgo, rowContext } from "../labels";
 import { carriedText, datedText, dayLong, type Dated } from "../plan";
 import { useScrollIntoView } from "../useScrollIntoView";
 import { Avatar } from "./Avatar";
-import { EventMark, KindIcon, WhenIcon } from "./ItemMarks";
+import { EventMark, KindIcon, NotifyMark, WhenIcon } from "./ItemMarks";
 import type { RowWhen } from "../followUp";
+import { MOVE } from "../motion";
 
 interface Props {
   entry: Classified;
@@ -24,7 +25,6 @@ interface Props {
   carriedSince?: string;
   /** What the row shows at its end instead of the time: in Planned the day, for a follow-up when it comes back. */
   when?: RowWhen;
-  avatar: boolean;
   onSelect: () => void;
   onOpen: () => void;
   onMenu: (e: React.MouseEvent) => void;
@@ -36,7 +36,7 @@ interface Props {
   still: boolean;
 }
 
-export function InboxRow({ entry, selected, unread, dated, event, carriedSince, when, avatar, onSelect, onOpen, onMenu, time, query, still }: Props) {
+export function InboxRow({ entry, selected, unread, dated, event, carriedSince, when, onSelect, onOpen, onMenu, time, query, still }: Props) {
   const { item, mention, status } = entry;
   const person = mention?.by ?? item.author;
   const ref = useScrollIntoView<HTMLLIElement>(selected);
@@ -46,8 +46,8 @@ export function InboxRow({ entry, selected, unread, dated, event, carriedSince, 
       layout={still ? false : "position"}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, x: -24, transition: { duration: 0.16 } }}
-      transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+      exit={{ opacity: 0, x: -24, transition: MOVE }}
+      transition={MOVE}
       className={`inbox-row${selected ? " selected" : ""}${unread ? " unread" : ""}`}
       aria-selected={selected}
       data-id={item.id}
@@ -58,19 +58,18 @@ export function InboxRow({ entry, selected, unread, dated, event, carriedSince, 
       ref={ref}
     >
       {unread && <span className="fresh-dot" title={t("row.unread")} aria-label={t("row.unread")} />}
-      {avatar && <Avatar login={person} src={item.avatars[person]} size={34} />}
+      <Avatar login={person} src={item.avatars[person]} size={34} />
       <span className="row-main">
         <span className="row-title"><Highlight spans={titleSpans(item.title, query)} /></span>
-        <span className={`row-context${mention?.self ? " reminder" : ""}`}>
-          <KindIcon item={item} size={13} status={status} />
+        <span className={`row-context${mention?.self ? " self-mention" : ""}`}>
+          <KindIcon item={item} size={12} status={status} />
           {carriedSince && (
             <span className="row-mark carried" title={t("focus.carriedHint", { date: dayLong(carriedSince) })}>
               {carriedText(carriedSince)}
             </span>
           )}
           {dated && <DayMark dated={dated} />}
-          {/* "Assigned to you · app"; in Assigned to me the group heading names the repo already. */}
-          <span className="row-text">{`${rowContext(entry)} · ${item.repo.split("/")[1]}`}</span>
+          <span className="row-text">{rowContext(entry)}</span>
           {event && <span aria-hidden>·</span>}
           {event && <EventMark dated={event} className="row-mark" />}
         </span>
@@ -82,7 +81,10 @@ export function InboxRow({ entry, selected, unread, dated, event, carriedSince, 
             {when.text}
           </time>
         ) : (
-          <time>{compactAgo(time)}</time>
+          <time className="row-when">
+            <NotifyMark entry={entry} />
+            {compactAgo(time)}
+          </time>
         )}
         <span>#<Highlight spans={numberSpans(item.number, query)} /></span>
       </span>
@@ -95,7 +97,7 @@ function DayMark({ dated }: { dated: Dated }) {
   const { text, title } = datedText(dated);
   return (
     <span className="row-mark" title={title}>
-      <CalendarDays size={14} strokeWidth={1.75} aria-hidden />
+      <CalendarDays size={12} strokeWidth={1.75} aria-hidden />
       {text}
     </span>
   );

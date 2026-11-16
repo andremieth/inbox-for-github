@@ -26,9 +26,6 @@ interface Props {
   /** Unread items in the views that know the notion; a view with some prints its name and count bold. */
   unread: Partial<Record<View, number>>;
   repos: [repo: string, count: number][];
-  /** Show the counts next to the views, and next to the repos. */
-  viewCounts: boolean;
-  repoCounts: boolean;
   /** Repos the list is narrowed to; empty for all. */
   repoFilter: string[];
   me: string | null;
@@ -38,6 +35,8 @@ interface Props {
   calendarAccess: CalendarAccess;
   loading: boolean;
   fetchedAt: Date | null;
+  /** A search found more than GitHub returns, so the oldest items are missing. */
+  cut: boolean;
   usage: { budget: Budget | null; lastCost: number | null };
   refreshMinutes: number;
   /** Automatic refreshes wait until then because GitHub's hourly budget is low. */
@@ -64,7 +63,7 @@ interface Props {
 }
 
 export function Sidebar(props: Props) {
-  const { bucket, counts, repos, viewCounts, repoCounts, repoFilter, me, myName, myAvatar, loading, fetchedAt, error, pausedUntil } = props;
+  const { bucket, counts, repos, repoFilter, me, myName, myAvatar, loading, fetchedAt, error, pausedUntil } = props;
   const since = fetchedAt && ago(fetchedAt.toISOString());
   // Once a repo is picked, the dots turn into checkboxes and a click adds or removes a repo.
   const picking = repoFilter.length > 0;
@@ -95,9 +94,9 @@ export function Sidebar(props: Props) {
           return (
             <li key={b.id}>
               <button className={`nav-item${bucket === b.id ? " on" : ""}${hasUnread ? " unread" : ""}`} onClick={() => props.onBucket(b.id)} onContextMenu={(e) => props.onViewMenu(b.id, e)} title={`${b.title} (${key})`}>
-                <Icon size={15} strokeWidth={1.8} />
+                <Icon size={16} strokeWidth={1.75} />
                 <span>{b.title}</span>
-                {viewCounts && counts[b.id] > 0 && <span className="nav-count">{counts[b.id]}</span>}
+                {counts[b.id] > 0 && <span className="nav-count">{counts[b.id]}</span>}
               </button>
             </li>
           );
@@ -138,7 +137,7 @@ export function Sidebar(props: Props) {
                     <span className="repo-name">{name.split("/")[1]}</span>
                     {props.isDirectOnly(name) && <UserCheck className="repo-direct" size={12} aria-hidden />}
                   </span>
-                  {repoCounts && <span className="nav-count">{count}</span>}
+                  <span className="nav-count">{count}</span>
                 </button>
               </li>
             ))}
@@ -162,16 +161,18 @@ export function Sidebar(props: Props) {
             <small className="offline" title={error}>
               {t("sidebar.offline", { ago: since })}
             </small>
+          ) : since && props.cut ? (
+            <small title={t("sidebar.cutHint")}>{t("sidebar.cut", { ago: since })}</small>
           ) : (
             <small>{since ? t("sidebar.updated", { ago: since }) : t("sidebar.notLoaded")}</small>
           )}
         </span>
         <UsageRing usage={props.usage} refreshMinutes={props.refreshMinutes} onClick={props.onSettings} />
         <button className={`icon-btn${props.settingsNew ? " has-new" : ""}`} onClick={props.onSettings} title={props.settingsNew ? t("sidebar.settingsNew") : t("sidebar.settings")}>
-          <Settings2 size={15} />
+          <Settings2 size={16} />
         </button>
         <button className="icon-btn" onClick={props.onRules} title={t("sidebar.rules")}>
-          <CircleHelp size={15} />
+          <CircleHelp size={16} />
         </button>
       </footer>
     </nav>

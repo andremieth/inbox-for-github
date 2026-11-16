@@ -1,6 +1,6 @@
 /* The list yields width before the detail pane drops below 320px. */
 .shell {
-  --list-fit: min(var(--list-w), calc(100vw - var(--sidebar-w) - 320px));
+  --list-fit: min(var(--list-w), calc(100vw - var(--sidebar-w) - var(--detail-min-w)));
   position: relative;
   display: grid;
   grid-template-columns: var(--sidebar-w) var(--list-fit) minmax(0, 1fr);
@@ -33,7 +33,7 @@
   top: 0;
   bottom: 0;
   left: -4px;
-  width: 7px;
+  width: 8px;
   cursor: col-resize;
 }
 
@@ -41,31 +41,12 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: 4px;
   width: 1px;
   background: var(--text-faint);
   content: "";
   opacity: 0;
-  transition: opacity 120ms var(--ease);
-}
-
-.resizer.row {
-  top: -4px;
-  right: 0;
-  bottom: auto;
-  left: 0;
-  width: auto;
-  height: 7px;
-  cursor: row-resize;
-}
-
-.resizer.row::after {
-  top: 3px;
-  right: 0;
-  bottom: auto;
-  left: 0;
-  width: auto;
-  height: 1px;
+  transition: opacity var(--dur-fade) var(--ease);
 }
 
 .resizer:hover::after,
@@ -78,11 +59,6 @@
   cursor: col-resize !important;
   -webkit-user-select: none;
   user-select: none;
-}
-
-.resizing.rows,
-.resizing.rows * {
-  cursor: row-resize !important;
 }
 
 .boot {
@@ -110,7 +86,7 @@
   gap: 2px;
   align-items: center;
   height: 44px;
-  padding-left: 84px;
+  padding-left: var(--traffic-lights);
 }
 
 /* Windows keeps its native title bar, so nothing sits in this corner. */
@@ -139,12 +115,19 @@ html[data-platform="windows"] .sidebar-top {
   border-radius: var(--radius-m);
   background: var(--panel);
   color: var(--text-faint);
-  box-shadow: 0 1px 1px rgb(0 0 0 / 0.03);
 }
 
 .search-pill span {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-pill kbd {
+  flex: none;
 }
 
 /* Windows writes the shortcut out ("Ctrl+K"): on a sidebar dragged narrow the label is cut, where it would wrap out of the pill. */
@@ -166,7 +149,7 @@ html[data-platform="windows"] .search-pill span {
 
 .nav-item {
   display: flex;
-  gap: 9px;
+  gap: 8px;
   align-items: center;
   width: 100%;
   height: 30px;
@@ -177,7 +160,7 @@ html[data-platform="windows"] .search-pill span {
   color: var(--text-muted);
   font-weight: 500;
   text-align: left;
-  transition: background 100ms var(--ease), color 100ms var(--ease);
+  transition: background var(--dur-fade) var(--ease), color var(--dur-fade) var(--ease);
 }
 
 .nav-item span:not(.nav-count, .repo-dot, .repo-check, .new-chip) {
@@ -200,7 +183,7 @@ html[data-platform="windows"] .search-pill span {
 
 .nav-count {
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .nav-item.unread,
@@ -213,7 +196,7 @@ html[data-platform="windows"] .search-pill span {
 }
 
 .nav.views {
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .nav-heading {
@@ -222,10 +205,17 @@ html[data-platform="windows"] .search-pill span {
   align-items: center;
   margin: 20px 8px 6px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.nav-heading span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav.repos {
@@ -252,11 +242,11 @@ html[data-platform="windows"] .search-pill span {
 
 .repo-dot {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 2px;
   background: var(--text-faint);
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .scope-notice {
@@ -264,12 +254,12 @@ html[data-platform="windows"] .search-pill span {
   flex: none;
   gap: 6px;
   margin: 8px 4px 0;
-  padding: 10px;
+  padding: 10px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-m);
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: var(--fs-s);
 }
 
 .scope-notice strong {
@@ -280,11 +270,11 @@ html[data-platform="windows"] .search-pill span {
   font-weight: 600;
 }
 
-/* Something that does not work until acted on; at 8% the yellow icon keeps 3:1 and --text-muted 6.4:1 (light) and 5.1:1 (dark). */
+/* Something that does not work until acted on; at --tint-faint the yellow icon keeps 3:1 and --text-muted 6.4:1 (light) and 5.1:1 (dark). */
 .scope-notice.warn {
   margin-bottom: 12px;
   border-color: var(--yellow);
-  background: color-mix(in srgb, var(--yellow) 8%, var(--surface));
+  background: color-mix(in srgb, var(--yellow) var(--tint-faint), var(--surface));
 }
 
 .scope-notice.warn strong svg {
@@ -308,9 +298,9 @@ html[data-platform="windows"] .search-pill span {
   gap: 6px;
   justify-content: space-between;
   align-items: center;
-  padding: 5px 7px;
+  padding: 4px 8px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-s);
   background: var(--track);
   color: var(--text);
   text-align: left;
@@ -318,7 +308,7 @@ html[data-platform="windows"] .search-pill span {
 
 .scope-command code {
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .sidebar-foot {
@@ -335,7 +325,7 @@ html[data-platform="windows"] .search-pill span {
   flex: 1;
   flex-direction: column;
   min-width: 0;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 .foot-text strong {
@@ -345,10 +335,10 @@ html[data-platform="windows"] .search-pill span {
 }
 
 .foot-text small {
-  margin-top: 3px;
+  margin-top: 2px;
   overflow: hidden;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -358,7 +348,7 @@ html[data-platform="windows"] .search-pill span {
   display: inline-block;
   width: 6px;
   height: 6px;
-  margin-right: 5px;
+  margin-right: 4px;
   border-radius: 50%;
   background: var(--yellow);
   content: "";
@@ -367,11 +357,11 @@ html[data-platform="windows"] .search-pill span {
 
 .error-bar {
   position: fixed;
-  top: 52px;
+  top: calc(44px + 8px);
   right: 16px;
-  max-width: 420px;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--new) 50%, transparent);
+  max-width: var(--notice-w);
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--new) var(--tint-half), transparent);
   border-radius: var(--radius-l);
   background: var(--panel);
   box-shadow: var(--shadow-pop);
@@ -386,15 +376,15 @@ html[data-platform="windows"] .search-pill span {
   z-index: 30;
   display: grid;
   place-items: start center;
-  padding-top: 12vh;
+  padding-top: var(--dialog-top);
   background: var(--overlay);
   backdrop-filter: blur(2px);
 }
 
 .dialog {
-  width: min(560px, calc(100vw - 32px));
+  width: min(var(--dialog-w), calc(100vw - var(--dialog-margin)));
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-l);
   background: var(--panel);
   box-shadow: var(--shadow-pop);
 }
@@ -404,16 +394,16 @@ html[data-platform="windows"] .search-pill span {
 .dialog.settings {
   position: relative;
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
+  grid-template-columns: var(--settings-nav-w) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
-  width: min(880px, calc(100vw - 32px));
-  height: min(620px, 85vh);
+  width: min(var(--settings-w), calc(100vw - var(--dialog-margin)));
+  height: min(var(--settings-h), var(--dialog-max-h));
   overflow: hidden;
 }
 
 .dialog.settings.welcome {
   grid-template-columns: minmax(0, 1fr);
-  width: min(560px, calc(100vw - 32px));
+  width: min(var(--dialog-w), calc(100vw - var(--dialog-margin)));
   height: auto;
 }
 
@@ -421,14 +411,14 @@ html[data-platform="windows"] .search-pill span {
   display: grid;
   align-content: start;
   gap: 2px;
-  padding: 18px 10px;
+  padding: 20px 10px;
 }
 
 .dialog .settings-nav h2,
 .settings-heading {
   margin: 0;
-  font-size: 15px;
-  font-weight: 550;
+  font-size: var(--fs-l);
+  font-weight: 600;
   line-height: 24px;
 }
 
@@ -447,8 +437,8 @@ html[data-platform="windows"] .search-pill span {
 .settings-body {
   display: grid;
   align-content: start;
-  gap: 18px;
-  padding: 0 max(0px, calc(24px - var(--gutter, 0px))) 22px 24px;
+  gap: 20px;
+  padding: 0 max(0px, calc(24px - var(--gutter, 0px))) 24px 24px;
   overflow-y: auto;
 }
 
@@ -460,7 +450,7 @@ html[data-platform="windows"] .search-pill span {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 0 6px;
+  padding: 20px 0 6px;
   background: var(--panel);
 }
 
@@ -484,18 +474,9 @@ html[data-platform="windows"] .search-pill span {
 
 /* A setting from a recent release; blue holds 4.5:1 on the panel and the hover fill in both themes. */
 .new-chip {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  height: 16px;
   margin-left: 6px;
-  padding: 0 6px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
   color: var(--blue);
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 1;
   vertical-align: 1px;
 }
 
@@ -513,7 +494,7 @@ html[data-platform="windows"] .search-pill span {
   right: 4px;
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: 50%;
   background: var(--blue);
   content: "";
 }
@@ -527,10 +508,10 @@ html[data-platform="windows"] .search-pill span {
   justify-self: start;
   padding: 0;
   border: 0;
-  background: none;
+  background: transparent;
   color: var(--text);
-  font-size: 12.5px;
-  font-weight: 550;
+  font-size: var(--fs-s);
+  font-weight: 600;
   text-decoration: underline;
   text-decoration-color: var(--border-strong);
   text-underline-offset: 3px;
@@ -549,8 +530,8 @@ html[data-platform="windows"] .search-pill span {
 
 .dialog h2 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 550;
+  font-size: var(--fs-l);
+  font-weight: 600;
 }
 
 .dialog-intro {
@@ -565,14 +546,14 @@ html[data-platform="windows"] .search-pill span {
 
 .field > span {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-s);
   font-weight: 500;
 }
 
 .field small,
 .toggle-row small {
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--fs-s);
 }
 
 .field-group {
@@ -604,7 +585,7 @@ html[data-platform="windows"] .search-pill span {
 
 .delivery-line {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: var(--settings-label-w) minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   padding: 10px 12px;
@@ -616,7 +597,7 @@ html[data-platform="windows"] .search-pill span {
 
 .delivery-label {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-s);
   font-weight: 500;
 }
 
@@ -632,7 +613,7 @@ html[data-platform="windows"] .search-pill span {
   display: inline-flex;
   align-items: center;
   height: var(--control-h);
-  padding-right: 3px;
+  padding-right: 4px;
   border-radius: var(--radius-m);
   background: var(--control-fill);
 }
@@ -641,7 +622,7 @@ html[data-platform="windows"] .search-pill span {
   height: 100%;
   padding: 0 8px 0 10px;
   border-color: transparent;
-  background: none;
+  background: transparent;
   font-weight: 500;
 }
 
@@ -653,7 +634,7 @@ html[data-platform="windows"] .search-pill span {
   color: var(--text-muted);
 }
 
-.time-chip-x {
+.icon-btn.time-chip-x {
   width: 22px;
   height: 22px;
 }
@@ -671,20 +652,8 @@ html[data-platform="windows"] .search-pill span {
   align-items: center;
 }
 
-.field textarea {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-m);
-  background: var(--bg);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  resize: vertical;
-  -webkit-user-select: text;
-  user-select: text;
-}
-
-/* Controls of one kind stand equally tall in every section. */
-.dialog.settings :is(.btn, .repo-search, .org-add input, .segment-field) {
+/* Controls of one kind stand equally tall in every dialog. */
+.dialog :is(.btn, .repo-search, .org-add input, .segment-field) {
   height: var(--control-h);
 }
 
@@ -717,11 +686,11 @@ html[data-platform="windows"] .search-pill span {
 .org-select-button,
 .org-select-menu button {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   width: 100%;
   border: 0;
-  background: none;
+  background: transparent;
   color: var(--text);
   text-align: left;
 }
@@ -742,17 +711,17 @@ html[data-platform="windows"] .search-pill span {
   width: 22px;
   height: 22px;
   border-radius: var(--radius-s);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .org-select strong {
-  font-weight: 550;
+  font-weight: 600;
 }
 
 .org-select-summary {
   margin-left: auto;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-s);
 }
 
 .org-select-chevron {
@@ -762,11 +731,11 @@ html[data-platform="windows"] .search-pill span {
 
 .org-select-menu {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + var(--pop-gap));
   right: 0;
   left: 0;
   z-index: 26;
-  max-height: 280px;
+  max-height: var(--dropdown-max-h);
   margin: 0;
   padding: 4px;
   overflow-y: auto;
@@ -779,19 +748,18 @@ html[data-platform="windows"] .search-pill span {
 
 .org-select-menu button {
   height: 36px;
-  padding: 0 10px;
+  padding: 0 8px;
   border-radius: var(--radius-m);
 }
 
 .org-select-menu button:hover,
 .org-select-menu button.on {
-  background: var(--hover);
+  background: var(--selected);
 }
 
 /* As tall as the time and segmented fields next to it, not like the organization picker. */
 .calendar-select .org-select-button {
-  gap: 8px;
-  height: 30px;
+  height: var(--control-h);
   border-color: transparent;
   background: var(--control-fill);
 }
@@ -799,8 +767,7 @@ html[data-platform="windows"] .search-pill span {
 .calendar-select .org-select-button:hover,
 .calendar-select .org-select-button:has(+ .calendar-clear:hover) {
   border-color: transparent;
-  /* --hover over the fill, as a segmented button over its track; --hover alone would lighten it. */
-  background: linear-gradient(var(--hover), var(--hover)), var(--control-fill);
+  background: var(--control-hover);
 }
 
 .calendar-placeholder,
@@ -812,17 +779,17 @@ html[data-platform="windows"] .search-pill span {
 }
 
 /* Over the field, left of the chevron; a button inside the field's button would not be valid HTML. */
-.calendar-clear {
+.icon-btn.calendar-clear {
   position: absolute;
   top: 50%;
-  right: 33px;
+  right: calc(12px + 14px + 8px);
   transform: translateY(-50%);
   width: 22px;
   height: 22px;
 }
 
 .calendar-select .org-select-button:has(+ .calendar-clear) .calendar-account {
-  margin-right: 46px;
+  margin-right: 48px;
 }
 
 .calendar-select strong {
@@ -834,7 +801,6 @@ html[data-platform="windows"] .search-pill span {
 }
 
 .calendar-select .org-select-menu button {
-  gap: 8px;
   height: 30px;
 }
 
@@ -847,7 +813,7 @@ html[data-platform="windows"] .search-pill span {
 
 .radios {
   display: flex;
-  gap: 14px;
+  gap: 16px;
 }
 
 .radio {
@@ -865,7 +831,7 @@ html[data-platform="windows"] .search-pill span {
   border: 1.5px solid var(--text-faint);
   border-radius: 50%;
   appearance: none;
-  transition: background 120ms var(--ease), border-color 120ms var(--ease);
+  transition: background var(--dur-fade) var(--ease), border-color var(--dur-fade) var(--ease);
 }
 
 .radio input:checked {
@@ -880,8 +846,8 @@ html[data-platform="windows"] .search-pill span {
 
 .repo-search {
   flex: 1;
-  min-width: 160px;
-  height: 28px;
+  min-width: var(--search-min-w);
+  height: var(--control-h);
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
@@ -900,7 +866,7 @@ html[data-platform="windows"] .search-pill span {
 }
 
 .field .repo-list {
-  max-height: 260px;
+  max-height: var(--settings-list-h);
 }
 
 .repo-list label {
@@ -908,8 +874,8 @@ html[data-platform="windows"] .search-pill span {
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 2px;
-  font-size: 12.5px;
+  padding: 4px 2px;
+  font-size: var(--fs-s);
 }
 
 .repo-error {
@@ -923,7 +889,7 @@ html[data-platform="windows"] .search-pill span {
 
 .org-add input {
   flex: 1;
-  height: 30px;
+  height: var(--control-h);
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
@@ -942,19 +908,18 @@ html[data-platform="windows"] .search-pill span {
 
 .segmented button {
   height: 26px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 5px;
+  border-radius: calc(var(--radius-m) - 2px);
   background: transparent;
   color: var(--text-muted);
   font-weight: 500;
-  transition: background 120ms var(--ease), color 120ms var(--ease);
+  transition: background var(--dur-fade) var(--ease), color var(--dur-fade) var(--ease);
 }
 
 /* A choice that has its place but nothing to do here, greyed out like header controls. */
 .segmented button:disabled {
-  opacity: 0.4;
-  cursor: default;
+  opacity: 0.5;
 }
 
 .segmented button:not(.on, :disabled):hover {
@@ -978,7 +943,7 @@ html[data-platform="windows"] .search-pill span {
 }
 
 .time-field .segment-field {
-  height: 30px;
+  height: var(--control-h);
   padding: 0 12px;
   border-color: transparent;
   background: var(--control-fill);
@@ -994,12 +959,12 @@ html[data-platform="windows"] .search-pill span {
   background: var(--panel);
   color: var(--text);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+  box-shadow: var(--shadow-raised);
 }
 
 .toggle-row {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
   min-height: var(--row-h);
   padding: 10px 12px;
@@ -1032,7 +997,7 @@ html[data-platform="windows"] .search-pill span {
   margin: 0;
   padding: 6px 12px 8px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-s);
 }
 
 .toggle-card-part {
@@ -1047,7 +1012,7 @@ html[data-platform="windows"] .search-pill span {
   width: 100%;
   padding: 6px 12px 2px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-s);
   font-weight: 500;
 }
 
@@ -1073,7 +1038,7 @@ html[data-platform="windows"] .search-pill span {
   margin: 0;
   border-radius: 999px;
   background: var(--border-strong);
-  transition: background 140ms var(--ease);
+  transition: background var(--dur-move) var(--ease);
   appearance: none;
 }
 
@@ -1085,9 +1050,9 @@ html[data-platform="windows"] .search-pill span {
   height: 14px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  box-shadow: var(--shadow-knob);
   content: "";
-  transition: translate 160ms var(--ease);
+  transition: translate var(--dur-move) var(--ease);
 }
 
 .switch:checked {
@@ -1105,7 +1070,7 @@ html[data-platform="windows"] .search-pill span {
 }
 
 .dialog-actions kbd {
-  border-color: rgb(255 255 255 / 0.3);
+  border-color: color-mix(in srgb, currentColor var(--tint-half), transparent);
   background: transparent;
   color: inherit;
 }
@@ -1131,7 +1096,7 @@ html[data-platform="windows"] .search-pill span {
 
 .usage-left {
   stroke-linecap: round;
-  transition: stroke-dasharray 300ms var(--ease);
+  transition: stroke-dasharray var(--dur-slow) var(--ease);
 }
 
 .usage-ring.ok .usage-left {
@@ -1153,8 +1118,8 @@ html[data-platform="windows"] .search-pill span {
 
 .stop-mark {
   position: absolute;
-  right: 5px;
-  bottom: 5px;
+  right: 4px;
+  bottom: 4px;
   width: 6px;
   height: 6px;
   border-radius: 1.5px;
@@ -1170,9 +1135,10 @@ html[data-platform="windows"] .search-pill span {
   padding: 0;
   place-items: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   background: transparent;
   color: var(--text-muted);
+  transition: background var(--dur-fade) var(--ease), color var(--dur-fade) var(--ease);
 }
 
 .heading-action:hover {
@@ -1192,8 +1158,8 @@ html[data-platform="windows"] .search-pill span {
   box-sizing: border-box;
   width: 12px;
   height: 12px;
-  /* 12px wide, but takes the dot's 7px in the row: 12 - 2 × 2.5. */
-  margin: 0 -2.5px;
+  /* 12px wide, but takes the dot's 8px in the row: 12 - 2 × 2. */
+  margin: 0 -2px;
   place-items: center;
   border: 1.5px solid var(--text-faint);
   border-radius: 3px;
@@ -1241,43 +1207,12 @@ html[data-platform="windows"] .search-pill span {
   white-space: nowrap;
 }
 
-.status-map-choice {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-m);
-  background: var(--track);
-}
-
-.status-map-choice button {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-faint);
-  font-size: 11.5px;
-  font-weight: 500;
-}
-
-.status-map-choice button:hover:not(.on, .auto) {
-  background: var(--hover);
-  color: var(--text-muted);
-}
-
-/* Selected like any segment; the app's guess stays at normal weight, the viewer's own choice is bold and has the reset button. */
+/* The app's guess looks selected but keeps the medium weight; the viewer's own choice is bold (.on) and has the reset button. */
 .status-map-choice button.auto,
-.status-map-choice button.on {
+.status-map-choice button.auto:hover {
   background: var(--panel);
   color: var(--text);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
-}
-
-.status-map-choice button.on {
-  font-weight: 600;
+  box-shadow: var(--shadow-raised);
 }
 
 .attribute-list {
@@ -1290,7 +1225,7 @@ html[data-platform="windows"] .search-pill span {
 
 .attribute-row {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   padding: 8px 12px 8px 6px;
   border: 1px solid var(--border);
@@ -1299,7 +1234,7 @@ html[data-platform="windows"] .search-pill span {
 }
 
 .attribute-row.droppable:hover {
-  border-color: var(--st-accepted);
+  border-color: var(--blue);
 }
 
 .attribute-grip {
@@ -1319,12 +1254,12 @@ html[data-platform="windows"] .search-pill span {
   color: var(--text-faint);
 }
 
-/* Column heads above the two switches of each attribute row, aligned with them. */
+/* Column heads above the two switches of each attribute row, aligned with them past the row's padding and border. */
 .attribute-head {
   display: flex;
   gap: 10px;
   align-items: baseline;
-  padding-right: 13px;
+  padding-right: calc(12px + 1px);
 }
 
 .attribute-head small {
@@ -1339,7 +1274,7 @@ html[data-platform="windows"] .search-pill span {
 
 .orb-list {
   display: grid;
-  max-height: 260px;
+  max-height: var(--settings-list-h);
   margin: 0;
   padding: 0;
   overflow-y: auto;
@@ -1398,7 +1333,7 @@ html[data-platform="windows"] .search-pill span {
   overflow: hidden;
   padding: 0;
   border: 0;
-  background: none;
+  background: transparent;
   color: var(--text);
   font-weight: 500;
   text-align: left;

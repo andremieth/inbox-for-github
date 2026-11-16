@@ -70,11 +70,15 @@ watch:
 git diff --diff-filter=M --name-only upstream/main main | wc -l
 ```
 
-It was 49 on 2026-11-13: 45 from the Windows edition, 32 of them code, and 4 from the one
-downstream patch. Upstream changed 27 of those files within three days, which is what a merge
-then has to resolve by hand. The building blocks are still only here; moving them upstream
-brings the list down to this:
+It was 49 on 2026-11-13 and 46 after the merge of 2026-11-16, 29 of them code. Upstream changes
+most of these files all the time: 27 of them in the three days before the first count and 31 in
+the three days after it, and a merge then has conflicts to resolve by hand (twelve files on
+2026-11-16, five of them the downstream patch that upstream had taken over in its own version).
+The building blocks are still only here; moving them upstream brings the list down to this:
 
+- `.github/workflows/shell.yml`: upstream's compiles the shell on macOS when a pull request
+  touches it; the one here compiles it on macOS and on Windows for every pull request, and the
+  ruleset on `main` requires both jobs.
 - `src-tauri/Cargo.toml` and `Cargo.lock`: the Windows dependencies, which upstream keeps out.
 - `rust-toolchain.toml`: the Windows target.
 - `package.json`: the script `build:local:windows`.

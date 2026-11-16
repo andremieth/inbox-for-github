@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { groupByType, isNewAssignment, assignedAt } from "../../ui/assignments";
-import { backChange, historyText } from "../../ui/activities";
+import { backEvent, eventText, historyText } from "../../ui/activities";
 import { groupAuthored } from "../../ui/authored";
 import { rowContext } from "../../ui/labels";
 import { DAY, HOUR, MINUTE, simulation } from "./vitest";
@@ -462,7 +462,7 @@ describe("Follow-ups", () => {
     expect(app.followUp(issue)).toBeNull();
   });
 
-  it("shows nothing about the end in the list once the item is back", async () => {
+  it("says in the list that the follow-up came due once the item is back", async () => {
     const { world, app } = sim;
     const issue = world.issue({ author: "octocat" });
     await app.refresh();
@@ -471,7 +471,7 @@ describe("Follow-ups", () => {
 
     const label = rowContext(app.entry(issue));
 
-    expect(label).not.toMatch(/snooze|follow|reminder|ended|due/i);
+    expect(label).toMatch(/follow-up came due|Wiedervorlage ist fällig/);
   });
 
   it("writes nothing to the item's log when the follow-up comes due, and names it in the history", async () => {
@@ -484,9 +484,9 @@ describe("Follow-ups", () => {
     app.classified();
 
     expect(app.log.get(issue.id)?.map((l) => historyText(l))).toEqual(["history.snoozed"]);
-    expect(historyText(backChange(app.entry(issue))!)).toBe("history.back.due");
+    expect(eventText(backEvent(app.entry(issue))!)).toBe("history.back.due");
     app.done(issue);
-    expect(backChange(app.entry(issue))).toBeNull();
+    expect(backEvent(app.entry(issue))).toBeNull();
   });
 
   it("files the returned item with D without finishing it: it leaves the inbox and stays in its table", async () => {

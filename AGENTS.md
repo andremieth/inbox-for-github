@@ -17,7 +17,7 @@ GitHub through the GraphQL API with the `gh` CLI's token and keeps everything el
 /
 ├── src/
 │   ├── github/        # GraphQL client, rate limits, search, deltas, boards, comments
-│   ├── rules/         # optional inbox rules
+│   ├── rules/         # inbox rules: when a mention counts as answered, direct requests only
 │   ├── classify.ts    # which view an item belongs in (with reopen.ts, review.ts, timeline.ts)
 │   ├── store.ts       # SQLite: settings, statuses and their log, notes, seen, cache
 │   └── ui/            # hooks and helpers; parts/ = components, styles/ = CSS, locales/ = texts
@@ -31,8 +31,9 @@ GitHub through the GraphQL API with the `gh` CLI's token and keeps everything el
 
 - **Read before you edit**, even for a one-line change: this file, [`CONTRIBUTING.md`](CONTRIBUTING.md) and the doc for what you touch (table below).
 - **Every UI text in both dictionaries:** `src/ui/locales/en.ts` is the source, `de.ts` mirrors it. No literal UI strings in components.
+- **Style guide:** every CSS value comes from [`style-guide.md`](docs/conventions/style-guide.md); copy the spec of the same kind of element, ask before a new value. `styles.test.ts` checks it.
 - **Contrast:** WCAG AA in light and dark, 4.5:1 for text, 3:1 for icons and control states. Compute it; see [`ui.md`](docs/conventions/ui.md).
-- **GitHub writes are limited** to plain comments, close/reopen and assigning or unassigning yourself. No review actions, no edits of others' text.
+- **GitHub writes are limited** to plain comments, close/reopen, assigning or unassigning yourself and your own reactions on posts. No review actions, no edits of others' text.
 - **Statuses, notes and settings never leave the Mac.**
 - **Frugal with the API:** measure a query's cost with `rateLimit(dryRun: true) { cost }` before shipping it; filter locally instead of refetching. See [`github-api.md`](docs/reference/github-api.md).
 - **Public repo:** no employer, clients, their orgs, repos or boards, work circumstances, real people or personal data in code, commits, PRs or issues; examples come from the demo's fictional world. See [`CONTRIBUTING.md`](CONTRIBUTING.md#public-content).
@@ -78,7 +79,7 @@ handover what to look at there: the user checks every change in the running app.
 | deciding whether a change belongs here or upstream, opening a pull request upstream, merging upstream | [`fork.md`](docs/fork.md) |
 | asking what GitHub notifies about that the app does not | [`notifications.md`](docs/reference/notifications.md) |
 | writing or commenting code | [`code-style.md`](docs/conventions/code-style.md) |
-| changing UI, colors, texts or keyboard shortcuts | [`ui.md`](docs/conventions/ui.md) |
+| changing UI, colors, texts or keyboard shortcuts | [`ui.md`](docs/conventions/ui.md), and [`style-guide.md`](docs/conventions/style-guide.md) for every CSS value |
 | adding or changing a setting | [`settings.md`](docs/conventions/settings.md) |
 | adding tests or checking a change by hand | [`testing.md`](docs/testing.md), [`TESTING.md`](TESTING.md) |
 | building the app or regenerating the icon | [`releasing.md`](docs/releasing.md) |

@@ -14,8 +14,8 @@ numbers below go stale when fields are added.
 
 | Request | Where | Cost |
 |---|---|---|
-| Search page of 50 items with all fields | `QUERY` in `src/github/fetch.ts` | ~19 points (18 before commits got their own window; unchanged by `issueType`, review ids and links, thread state, the state events, an issue window of 20 instead of 10, the commit author and `TransferredEvent`, dry run 2026-10-29) |
-| Search page of 20 items (delta) | same, `pageSize: 20` | ~7 points (re-measured 2026-10-25; unchanged by `TransferredEvent`, dry run 2026-10-29) |
+| Search page of 50 items with all fields | `QUERY` in `src/github/fetch.ts` | ~19 points (18 before commits got their own window; unchanged by `issueType`, review ids and links, thread state, the state events, an issue window of 20 instead of 10, the commit author and `TransferredEvent`, dry run 2026-10-29; and by `issueCount` and `sort:updated-desc`, dry run 2026-11-13; and by the reaction counts and post ids, dry run 2026-11-16) |
+| Search page of 20 items (delta) | same, `pageSize: 20` | ~7 points (re-measured 2026-10-25; unchanged by `TransferredEvent`, dry run 2026-10-29, and by `issueCount` and the sort, 2026-11-13, and by the reaction counts, 2026-11-16) |
 | Open review requests, ids only | `REVIEW_IDS_QUERY` (`fetchReviewIds`, every delta), page of 100 | 1 point (dry run and `x-ratelimit-used`, 2026-10-29) |
 | One item by node id | `NODE_QUERY` (`reloadItem`, ⌃R) | 1 point |
 | Many items by node id | `NODES_QUERY` (`fetchItemsById`, right click on a view), `REFRESH_CHUNK = 50` | 19 points for 50, 37 for 100, 9 for 25, 4 for 10 (measured 2026-10-26 with `rateLimit(dryRun: true)`); a single `node` costs 1, so from about three items the bulk request is cheaper |
@@ -23,13 +23,15 @@ numbers below go stale when fields are added.
 | Budget read | `x-ratelimit-*` response headers | free |
 | `rate_limit` REST endpoint | — | free |
 
-A full fetch pages through every search up to the item limit (default 200 per search; two
-qualifiers, for open and, with a closed window, closed items), a few hundred points. A delta
+A full fetch pages through every search to its end (at most GitHub's 1000 hits, `SEARCH_STOP`;
+two qualifiers, for open and, with a closed window, closed items), about 19 points per 50 hits.
+Every search sorts by `sort:updated-desc`, so a search past the stop misses only the oldest items
+and the same ones each time; `issueCount` tells that it was cut (the sidebar says "Not all loaded"). A delta
 runs the same searches with one page of 20 each, about 7 points per search, plus one point for
 the ids of the open review requests. Widening the
 closed window adds the two closed searches over the added days only, paged like a full fetch:
-the same `QUERY` with another search string, so ~19 points per page of 50, at most 8 pages
-(about 150 points) at the default limit and usually one or two per search.
+the same `QUERY` with another search string, so ~19 points per page of 50, usually one or two
+pages per search.
 
 ## Verified behavior (2026-10-23)
 
@@ -38,6 +40,11 @@ Each was checked against the live API during development.
 - Repeated `org:` and `user:` qualifiers in one search combine with **OR**, so one search covers
   all watched owners (`fetchItems`).
 - Long search queries work; queries over 1000 characters were accepted.
+- `sort:updated-desc` in the search string orders the hits by `updatedAt`, newest first; without
+  it GitHub orders by best match, which shifts between requests (checked 2026-11-13).
+- A search stops at 1000 hits: after ten pages of 100, `hasNextPage` is false, while
+  `issueCount` still gives the full number, e.g. 258917 for `is:issue repo:microsoft/vscode`
+  (checked 2026-11-13). `fetchItems` compares the two to report a cut search.
 - `updated:>=` accepts a full datetime (`2026-10-23T10:00:00Z`), not only a date; deltas rely on it.
 - `closed:A..B` includes both days: the counts for `closed:2026-09-01..2026-10-21` and
   `closed:>=2026-10-22` added up to the one for `closed:>=2026-09-01` (checked 2026-10-29). A
@@ -68,6 +75,21 @@ Each was checked against the live API during development.
   `last: 20` on issues). Commits have their own (`commitItems`, `last: 20`), since `last` counts
   across all types and a long run of commits would otherwise push review requests out; it costs
   one point per search page of 50 and none on a delta page (dry run 2026-10-25).
+
+## Reactions (2026-11-16)
+
+- `reactionGroups` on an issue, a pull request, a comment, a review and an inline review comment
+  lists all eight emoji in a fixed order (`THUMBS_UP`, `THUMBS_DOWN`, `LAUGH`, `HOORAY`,
+  `CONFUSED`, `HEART`, `ROCKET`, `EYES`), unused ones with `reactors { totalCount: 0 }`
+  (read on a public issue). `reactionsOf` keeps only the used ones.
+- `viewerHasReacted` and `reactors { totalCount }` on every post left a search page at 19 points
+  for 50 and 7 for 20 (dry run). Names of the reactors through `reactors(first: 3) { nodes { … on
+  User { login } } }` raised it to 69 and 27, so the app loads counts only and its tooltip says
+  "You and 2 others", not who.
+- Whether a reaction moves the item's `updatedAt` is not verified; the simulator assumes it does
+  not, so a delta may show others' new reactions only with the next full fetch or a reload.
+- Caches from before reactions have no node ids on their posts, which reacting needs and an
+  empty value cannot stand in for, so `canDelta` asks for one full fetch right after the update.
 
 ## What moves `updatedAt` (2026-10-29)
 
@@ -112,6 +134,15 @@ Checked against a real transfer:
 again: `retry-after` for secondary limits, else `x-ratelimit-reset`. `useInbox` pauses automatic
 refreshes until then and below 400 remaining points (`LOW_BUDGET`).
 
+The responses of one refresh can come from two hourly windows in turn, each with its own
+`x-ratelimit-reset` and `x-ratelimit-used` (seen 2026-11-10 and 2026-11-11 with one token).
+`pointsSpent` therefore counts the drop in `remaining` per window, and what a window used before
+the app saw it only on a real new hour: when its reset lies an hour or more after every window it
+knows. Only GitHub's reset times decide, so a Mac clock that runs ahead cannot bring back the
+overcount.
+While two windows run, `lastBudget` reports the one with less left, for the usage ring and the
+pause at `LOW_BUDGET`, so neither jumps with each response.
+
 ## Timeouts
 
 GitHub gives a request ten seconds. One that takes longer gets `502 Bad Gateway` from the gateway
@@ -125,10 +156,14 @@ The search page is what runs into it. In an organization whose pull requests car
 and threads, a page of 50 took 7 to 11 s, a page of 25 4 to 8 s and a page of 10 2 to 3 s, and
 the later pages of a search were slower than its first (measured 2026-11-11).
 
-`graphql` throws `TimeoutError` for a request that fails that late (`GAVE_UP_MS`; a missing
-network fails at once), and `search` in `src/github/fetch.ts` asks for the page again at half
-the size, down to 5 hits, and holds every later page and search to that size until the app
-restarts. Smaller pages cost the same per hit: 19 points for 50, 9 for 25, 5 for 13, 3 for 7 and
+`graphql` throws `TimeoutError` for a request that fails 9 to 20 s after it went out
+(`GAVE_UP_MS`, `GAVE_UP_UNTIL_MS`): a missing network fails at once, and a fetch caught by a Mac
+going to sleep fails much later; both stay what they are. `search` in `src/github/fetch.ts` asks
+for the page again at half the size, down to 5 hits, and holds every later page and search to
+that size until the next full fetch, which tries 50 again: a slow organization costs one dropped
+page per full fetch, not one per delta. GitHub's search cursor is an offset, so a page asked
+again at another size with the same `after` neither skips nor repeats hits (as the simulator
+models it; not checked against GitHub beyond the refresh going through). Smaller pages cost the same per hit: 19 points for 50, 9 for 25, 5 for 13, 3 for 7 and
 2 for 5 (dry run 2026-11-11). The dropped request is not free: `x-ratelimit-used` rose by 39
 over a dropped page of 50 and the page of 25 after it, where a page of 25 alone adds 9 or 10
 (seen 2026-11-11).
@@ -141,7 +176,8 @@ over a dropped page of 50 and the page of 25 after it, where a page of 25 alone 
 ## Writes
 
 Only `src/github/comment.ts`: add a comment, close or reopen an issue or pull request (with a
-reason for issues), and add the viewer to the assignees (`assignSelf`: `addAssigneesToAssignable`,
+reason for issues), add or take back the viewer's reaction on a post (`setReaction`, below), and
+add the viewer to the assignees (`assignSelf`: `addAssigneesToAssignable`,
 1 point, returning the assignees; the viewer's node id once per session, 1 point; the query was
 validated against the live schema 2026-10-25 with an unknown node id, which GitHub rejects as
 `NOT_FOUND` without writing). No review actions and no edits of other people's text, by design
@@ -150,7 +186,11 @@ validated against the live schema 2026-10-25 with an unknown node id, which GitH
 `unassignSelf` removes the viewer the same way (`removeAssigneesFromAssignable`, 1 point;
 validated like `assignSelf` on 2026-10-25).
 
-Assigning and unassigning are shown at once and sent behind it through `queueWrite` (`src/github/queue.ts`), one
+`setReaction` adds or takes back the viewer's reaction on an item's description, a comment, a
+review or an inline review comment (`addReaction`, `removeReaction` on the post's node id,
+1 point each, returning the post's `reactionGroups`; validated like `assignSelf` on 2026-11-16).
+
+Assigning, unassigning and reactions are shown at once and sent behind it through `queueWrite` (`src/github/queue.ts`), one
 write after another; a failed one is undone locally with a toast. Measured 2026-10-25: about
 350 ms per GraphQL request and 70 ms for `gh auth token`, so waiting for the write plus a reload
 of the item and its boards took two to three seconds.
@@ -162,8 +202,3 @@ of the item and its boards took two to three seconds.
   that drop out of the involved search; the full fetch every 15 minutes catches them. Withdrawn review
   requests are the exception (see above). Resolving a review thread
   likely does not touch it either (not verified).
-- The points a refresh logs can be far too high. The responses of one refresh carried two
-  different `x-ratelimit-reset` times, each with its own `used` count, changing from request to
-  request (seen 2026-11-10 and 2026-11-11 with one token). `pointsSpent` takes every change of
-  the reset time as a new hour and adds all that window has used: a full refresh logged
-  `cost=2839` where the counter most of its requests hit rose by about 205.

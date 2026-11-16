@@ -1,10 +1,9 @@
 import Database from "@tauri-apps/plugin-sql";
-import type { FeedbackMode } from "./feedback";
 import { deriveHandledUntil } from "./handledUntil";
 import { afterFollowUp } from "./handoff";
 import type { Viewer } from "./github/fetch";
 import type { LogLevel } from "./log";
-import type { Handoff, Item, Reopen, Status, StatusChange, StoredStatus, StatusExtra, WriteFailure } from "./model";
+import type { Handoff, Item, LogAs, LogEvent, Reopen, Status, StatusChange, StoredStatus, StatusExtra, WriteFailure } from "./model";
 import { REOPEN_DEFAULT } from "./reopen";
 import type { RepoFilter } from "./repoFilter";
 import { MOVES_UP_DEFAULT, type MovesUp, type PlateGroup, type TypeGroup } from "./ui/assignments";
@@ -47,8 +46,8 @@ const SCHEMA = [
      status     TEXT NOT NULL,
      changed_at TEXT NOT NULL,
      until      TEXT,
-     due        INTEGER NOT NULL DEFAULT 0,
-     handoff    TEXT
+     handoff    TEXT,
+     notify     INTEGER
    )`,
   `CREATE TABLE IF NOT EXISTS status_log (
      id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,9 +55,20 @@ const SCHEMA = [
      status     TEXT NOT NULL,
      changed_at TEXT NOT NULL,
      automatic  INTEGER NOT NULL DEFAULT 0,
-     source     TEXT
+     source     TEXT,
+     until      TEXT,
+     notify     INTEGER,
+     log_as     TEXT
    )`,
   `CREATE INDEX IF NOT EXISTS status_log_node ON status_log (node_id)`,
+  `CREATE TABLE IF NOT EXISTS item_log (
+     id      INTEGER PRIMARY KEY AUTOINCREMENT,
+     node_id TEXT NOT NULL,
+     kind    TEXT NOT NULL,
+     at      TEXT NOT NULL,
+     value   TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS item_log_node ON item_log (node_id)`,
   `CREATE TABLE IF NOT EXISTS item_cache (
      id         INTEGER PRIMARY KEY CHECK (id = 1),
      version    INTEGER NOT NULL,
@@ -96,8 +106,10 @@ const SCHEMA = [
 
 /**
  * Removes what databases of earlier builds still hold and nothing reads any more: the reminders
- * table, the `keep_open` column of `item_status`, the settings keys the app dropped, and setting
- * values it no longer offers, rewritten to the value they acted as. The keys are named instead of
+ * table, the `keep_open` and `due` columns of `item_status`, the settings keys the app dropped, and setting
+ * values it no longer offers, rewritten to the value they acted as. Adds the `notify` column of
+ * `item_status` and the `until`, `notify` and `log_as` columns of `status_log` that databases from
+ * before them lack. The keys are named instead of
  * deleting every unknown one, since builds of different branches share one database. Does nothing
  * on a database created by `SCHEMA`, so it is safe on every start.
  *
@@ -107,11 +119,18 @@ const SCHEMA = [
  */
 async function dropLeftovers(db: Database): Promise<void> {
   await db.execute("DROP TABLE IF EXISTS item_reminder");
-  await db.execute("DELETE FROM settings WHERE key IN ('snoozeAuthored', 'orbSeeds', 'hoverActs', 'calendarTime')");
+  await db.execute("DELETE FROM settings WHERE key IN ('snoozeAuthored', 'orbSeeds', 'hoverActs', 'calendarTime', 'maxItems', 'rules', 'avatars', 'ownFeedback', 'assignedFeedback', 'threadReplies', 'ownClosed', 'viewCounts', 'repoCounts', 'refreshInRepos', 'stickyReply')");
   await db.execute(`UPDATE settings SET value = '"type"' WHERE key = 'tableGrouping' AND value = '"time"'`);
   await db.execute(`UPDATE settings SET value = '"mention"' WHERE key = 'reopenOn' AND value = '"mention-or-assigned-post"'`);
   const statusColumns = await db.select<{ name: string }[]>("PRAGMA table_info(item_status)");
-  if (statusColumns.some((c) => c.name === "keep_open")) await db.execute("ALTER TABLE item_status DROP COLUMN keep_open");
+  for (const name of ["keep_open", "due"]) {
+    if (statusColumns.some((c) => c.name === name)) await db.execute(`ALTER TABLE item_status DROP COLUMN ${name}`);
+  }
+  if (!statusColumns.some((c) => c.name === "notify")) await db.execute("ALTER TABLE item_status ADD COLUMN notify INTEGER");
+  const logColumns = new Set((await db.select<{ name: string }[]>("PRAGMA table_info(status_log)")).map((c) => c.name));
+  for (const [name, type] of [["until", "TEXT"], ["notify", "INTEGER"], ["log_as", "TEXT"]]) {
+    if (!logColumns.has(name)) await db.execute(`ALTER TABLE status_log ADD COLUMN ${name} ${type}`);
+  }
 }
 
 /** Where an opened item starts: at the top, at the relevant spot (see `DetailBody`), or at the latest entries. */
@@ -126,13 +145,10 @@ export type BotComments = "folded" | "open" | "hidden";
 export interface Settings {
   /** Owner logins to watch: organizations, and the viewer's own login for their personal repositories. */
   orgs: string[];
-  /** Rule id → enabled; missing ids fall back to the rule's default. */
-  rules: Record<string, boolean>;
   theme: Theme;
   /** Show the relevant person's avatar at the start of each list row. */
   /** The interface language; English unless chosen otherwise. */
   language: Lang;
-  avatars: boolean;
   /** Project ids of boards whose status and sprint stay out of the detail. */
   hiddenBoards: string[];
   /** Organization login → which of its repos to show; organizations without an entry show all. */
@@ -143,14 +159,6 @@ export interface Settings {
   reopenOn: Reopen;
   /** A pull request the viewer reviewed comes back into the inbox when someone else pushes to it (see `pushedSinceReview`). */
   reviewOnCommits: boolean;
-  /** Which posts and reviews by others bring the viewer's own items into the inbox (see `feedbackSince`). */
-  ownFeedback: FeedbackMode;
-  /** Posts and reviews by others bring the viewer's assignments into the inbox. */
-  assignedFeedback: boolean;
-  /** An answer in a review thread the viewer wrote in brings a pull request of others into the inbox (see `threadReply`). */
-  threadReplies: boolean;
-  /** An own item closed by someone else without merging comes into the inbox (see `closedByOther`). */
-  ownClosed: boolean;
   /** Per item, when the viewer last filed its asks with D without finishing it (ISO 8601); only an ask since then shows it in the inbox (see `classify`). */
   filedAt: Record<string, string>;
   /** Which activity besides others' posts and reviews moves an item up in its list. */
@@ -169,6 +177,8 @@ export interface Settings {
   notifyCollected: string[];
   /** When the last summary went out, ISO 8601; null until the first one is due. */
   notifyLastSummary: string | null;
+  /** When a due reminder ("Remind me") last rang, or came due with notifications off; ISO 8601, null until then. Reminders due after it ring at the next start. */
+  notifyRangAt: string | null;
   /** The dock badge counts the unread items in the inbox. */
   dockBadge: boolean;
   /** Comments the detail shows before folding older ones away; 0 shows all. */
@@ -177,11 +187,6 @@ export interface Settings {
   tableGrouping: "type" | "status" | "repo";
   /** The Created by me table groups its bars by who has taken the item on ("status") or by repository. */
   authoredGrouping: "status" | "repo";
-  /** The sidebar shows item counts next to the views, and next to the repositories. */
-  viewCounts: boolean;
-  repoCounts: boolean;
-  /** "Refresh the items of this view" (right click in the sidebar) loads only the items of the picked repositories; off loads the whole view. */
-  refreshInRepos: boolean;
   /** Lists show time headings (today, yesterday, this week, …). */
   groupByTime: boolean;
   /** Tab walks the main window's buttons, and Enter and Space press the focused one; off, Tab does nothing there outside a text field. */
@@ -192,10 +197,6 @@ export interface Settings {
   descriptionMode: DescriptionMode;
   /** How the detail shows comments by bots. */
   botComments: BotComments;
-  /** The comment box stays at the bottom of the detail instead of scrolling with the thread. */
-  stickyReply: boolean;
-  /** Most items loaded per search (involved, review requested) and refresh. */
-  maxItems: number;
   /** Items the viewer stopped tracking: left out everywhere, whatever happens on GitHub. */
   untracked: UntrackedItem[];
   /** Item ids marked "today" (T); any open item in any view. */
@@ -252,7 +253,7 @@ export interface UntrackedItem {
   at: string;
 }
 
-export const DEFAULT_SETTINGS: Settings = { orgs: [], rules: {}, theme: "system", language: "en", avatars: true, hiddenBoards: [], repoFilters: {}, directOnly: {}, reopenOn: REOPEN_DEFAULT, reviewOnCommits: true, ownFeedback: "any", assignedFeedback: true, threadReplies: true, ownClosed: true, filedAt: {}, movesUp: MOVES_UP_DEFAULT, refreshMinutes: 5, notifications: true, notifyOn: {}, notifyInFront: false, notifyDelivery: DEFAULT_DELIVERY, notifyCollected: [], notifyLastSummary: null, dockBadge: true, recentComments: 8, botComments: "folded", openAt: "top", descriptionMode: "collapsed", groupByTime: true, tabToButtons: false, viewCounts: true, repoCounts: true, refreshInRepos: true, tableGrouping: "type", authoredGrouping: "status", stickyReply: false, maxItems: 200, untracked: [], focus: [], focusDay: null, planned: [], pinnedOn: {}, plannedAt: {}, followUpTime: "09:00", workdays: [1, 2, 3, 4, 5], calendarId: "", calendarMinutes: 60, calendarEvents: {}, statusMap: {}, plateOrder: [], typeOrder: [], tableAttributes: null, tableColumns: {}, detailAttributes: null, loadBoards: true, closedDays: 7, repoFolder: "", logging: "off", orbLooks: {} };
+export const DEFAULT_SETTINGS: Settings = { orgs: [], theme: "system", language: "en", hiddenBoards: [], repoFilters: {}, directOnly: {}, reopenOn: REOPEN_DEFAULT, reviewOnCommits: true, filedAt: {}, movesUp: MOVES_UP_DEFAULT, refreshMinutes: 5, notifications: true, notifyOn: {}, notifyInFront: false, notifyDelivery: DEFAULT_DELIVERY, notifyCollected: [], notifyLastSummary: null, notifyRangAt: null, dockBadge: true, recentComments: 8, botComments: "folded", openAt: "top", descriptionMode: "collapsed", groupByTime: true, tabToButtons: false, tableGrouping: "type", authoredGrouping: "status", untracked: [], focus: [], focusDay: null, planned: [], pinnedOn: {}, plannedAt: {}, followUpTime: "09:00", workdays: [1, 2, 3, 4, 5], calendarId: "", calendarMinutes: 60, calendarEvents: {}, statusMap: {}, plateOrder: [], typeOrder: [], tableAttributes: null, tableColumns: {}, detailAttributes: null, loadBoards: true, closedDays: 7, repoFolder: "", logging: "off", orbLooks: {} };
 
 /**
  * Local persistence for manual statuses, settings and the last fetch. Nothing here is ever sent
@@ -327,13 +328,13 @@ export class Store {
   }
 
   async statuses(): Promise<Map<string, StoredStatus>> {
-    const rows = await this.db.select<{ node_id: string; status: StoredStatus["status"]; changed_at: string; until: string | null; handoff: string | null }[]>(
-      "SELECT node_id, status, changed_at, until, handoff FROM item_status",
+    const rows = await this.db.select<{ node_id: string; status: StoredStatus["status"]; changed_at: string; until: string | null; notify: number | null; handoff: string | null }[]>(
+      "SELECT node_id, status, changed_at, until, notify, handoff FROM item_status",
     );
     return new Map(
       rows.map((r) => [
         r.node_id,
-        { status: r.status, changedAt: r.changed_at, ...(r.until && { until: r.until }), ...(r.handoff && { handoff: JSON.parse(r.handoff) as Handoff }) },
+        { status: r.status, changedAt: r.changed_at, ...(r.until && { until: r.until }), ...(r.notify === 1 && { notify: true }), ...(r.handoff && { handoff: JSON.parse(r.handoff) as Handoff }) },
       ]),
     );
   }
@@ -354,12 +355,33 @@ export class Store {
 
   /** Every logged status change, per item id, oldest first. */
   async statusLog(): Promise<Map<string, StatusChange[]>> {
-    const rows = await this.db.select<{ node_id: string; status: Status; changed_at: string; automatic: number; source: string | null }[]>(
-      "SELECT node_id, status, changed_at, automatic, source FROM status_log ORDER BY id",
+    const rows = await this.db.select<{ node_id: string; status: Status; changed_at: string; automatic: number; source: string | null; until: string | null; notify: number | null; log_as: LogAs | null }[]>(
+      "SELECT node_id, status, changed_at, automatic, source, until, notify, log_as FROM status_log ORDER BY id",
     );
     const log = new Map<string, StatusChange[]>();
-    for (const r of rows) log.set(r.node_id, [...(log.get(r.node_id) ?? []), { status: r.status, at: r.changed_at, automatic: r.automatic === 1, ...(r.source && { source: r.source }) }]);
+    for (const r of rows) {
+      const change: StatusChange = { status: r.status, at: r.changed_at, automatic: r.automatic === 1, ...(r.source && { source: r.source }), ...(r.until !== null && { until: r.until }), ...(r.notify === 1 && { notify: true }), ...(r.log_as && { logAs: r.log_as }) };
+      log.set(r.node_id, [...(log.get(r.node_id) ?? []), change]);
+    }
     return log;
+  }
+
+  /** Every entry of the item log (see `LogEvent`), per item id, oldest first. */
+  async itemLog(): Promise<Map<string, LogEvent[]>> {
+    const rows = await this.db.select<{ node_id: string; kind: LogEvent["kind"]; at: string; value: string | null }[]>("SELECT node_id, kind, at, value FROM item_log ORDER BY id");
+    const log = new Map<string, LogEvent[]>();
+    for (const r of rows) log.set(r.node_id, [...(log.get(r.node_id) ?? []), { kind: r.kind, at: r.at, ...(r.value !== null && { value: r.value }) }]);
+    return log;
+  }
+
+  /** Adds an entry to the item log. */
+  async addLogEvent(nodeId: string, event: LogEvent): Promise<void> {
+    await this.db.execute("INSERT INTO item_log (node_id, kind, at, value) VALUES ($1, $2, $3, $4)", [nodeId, event.kind, event.at, event.value ?? null]);
+  }
+
+  /** Drops an entry of the item log, for an undo. */
+  async removeLogEvent(nodeId: string, event: LogEvent): Promise<void> {
+    await this.db.execute("DELETE FROM item_log WHERE node_id = $1 AND kind = $2 AND at = $3", [nodeId, event.kind, event.at]);
   }
 
   /**
@@ -368,21 +390,24 @@ export class Store {
    * longer count.
    *
    * @param automatic  True when the app writes it (a repair, or taking a finished part back into the work), not the viewer.
-   * @param extra      `until` with "snoozed" brings it back at that time; `handoff` with "done"
+   * @param extra      `until` with "snoozed" brings it back at that time, and `notify` rings then; `handoff` with "done"
    *                   ends the viewer's part of an assignment, keeping how the item looked.
    * @param source     What caused the change, for tracing it later: the input ("key:o", "menu",
    *                   "palette", "click") or the code path ("auto:locked"; "auto:reopen" and
    *                   "auto:snooze-ended" only in old rows); null when unknown.
-   * @returns The stored status and its log entry.
+   * @param logAs      How the timeline names it, when the status alone would mislead (see `LogAs`).
+   * @returns The stored status and its log entry; a follow-up's entry carries its date and "Remind me".
    */
-  async setStatus(nodeId: string, status: Status, automatic = false, now = new Date(), extra: StatusExtra = {}, source: string | null = null): Promise<{ stored: StoredStatus; change: StatusChange }> {
+  async setStatus(nodeId: string, status: Status, automatic = false, now = new Date(), extra: StatusExtra = {}, source: string | null = null, logAs: LogAs | null = null): Promise<{ stored: StoredStatus; change: StatusChange }> {
     const changedAt = now.toISOString();
+    const change = logEntry(status, changedAt, automatic, extra, source, logAs);
     await this.writeStatus(nodeId, status, changedAt, extra);
-    await this.db.execute("INSERT INTO status_log (node_id, status, changed_at, automatic, source) VALUES ($1, $2, $3, $4, $5)", [nodeId, status, changedAt, automatic ? 1 : 0, source]);
-    return {
-      stored: { status, changedAt, ...(extra.until && { until: extra.until }), ...(extra.handoff && { handoff: extra.handoff }) },
-      change: { status, at: changedAt, automatic, ...(source && { source }) },
-    };
+    await this.insertLog(nodeId, change);
+    return { stored: { status, changedAt, ...(extra.until && { until: extra.until }), ...(extra.notify && { notify: true }), ...(extra.handoff && { handoff: extra.handoff }) }, change };
+  }
+
+  private async insertLog(nodeId: string, c: StatusChange): Promise<void> {
+    await this.db.execute("INSERT INTO status_log (node_id, status, changed_at, automatic, source, until, notify, log_as) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", [nodeId, c.status, c.at, c.automatic ? 1 : 0, c.source ?? null, c.until ?? null, c.notify ? 1 : null, c.logAs ?? null]);
   }
 
   /**
@@ -419,40 +444,41 @@ export class Store {
    * to "done" and keeps its time and snapshot; anything else is cleared as by `clearStatus`.
    *
    * @param source  Logged with the change, as for `setStatus`.
+   * @param logAs   "follow-up-ended" when the viewer took it off, "hidden" when a plan replaced it.
    * @returns What is stored now, if anything, and the log entry.
    *
    * @example
-   *   await store.endFollowUp("I_kwDOAbc", new Date(), "key:x"); // { stored: { status: "done", … }, change: { status: "done", … } }
+   *   await store.endFollowUp("I_kwDOAbc", new Date(), "key:x"); // { stored: { status: "done", … }, change: { status: "done", logAs: "follow-up-ended", … } }
    */
-  async endFollowUp(nodeId: string, now = new Date(), source: string | null = null): Promise<{ stored?: StoredStatus; change: StatusChange }> {
+  async endFollowUp(nodeId: string, now = new Date(), source: string | null = null, logAs: LogAs = "follow-up-ended"): Promise<{ stored?: StoredStatus; change: StatusChange }> {
     const rows = await this.db.select<{ status: Status; changed_at: string; handoff: string | null }[]>("SELECT status, changed_at, handoff FROM item_status WHERE node_id = $1", [nodeId]);
     const row = rows[0];
     const stored = afterFollowUp(row && { status: row.status, changedAt: row.changed_at, ...(row.handoff && { handoff: JSON.parse(row.handoff) as Handoff }) });
-    if (!stored) return { change: await this.clearStatus(nodeId, now, source) };
-    const at = now.toISOString();
+    if (!stored) return { change: await this.clearStatus(nodeId, now, source, logAs) };
+    const change = logEntry(stored.status, now.toISOString(), false, {}, source, logAs);
     await this.writeStatus(nodeId, stored.status, stored.changedAt, stored);
-    await this.db.execute("INSERT INTO status_log (node_id, status, changed_at, automatic, source) VALUES ($1, $2, $3, 0, $4)", [nodeId, stored.status, at, source]);
-    return { stored, change: { status: stored.status, at, automatic: false, ...(source && { source }) } };
+    await this.insertLog(nodeId, change);
+    return { stored, change };
   }
 
   private async writeStatus(nodeId: string, status: Status, changedAt: string, extra: StatusExtra = {}): Promise<void> {
     await this.db.execute(
-      `INSERT INTO item_status (node_id, status, changed_at, until, handoff) VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (node_id) DO UPDATE SET status = excluded.status, changed_at = excluded.changed_at, until = excluded.until, handoff = excluded.handoff`,
-      [nodeId, status, changedAt, extra.until ?? null, extra.handoff ? JSON.stringify(extra.handoff) : null],
+      `INSERT INTO item_status (node_id, status, changed_at, until, notify, handoff) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (node_id) DO UPDATE SET status = excluded.status, changed_at = excluded.changed_at, until = excluded.until, notify = excluded.notify, handoff = excluded.handoff`,
+      [nodeId, status, changedAt, extra.until ?? null, extra.notify ? 1 : null, extra.handoff ? JSON.stringify(extra.handoff) : null],
     );
   }
 
   /**
    * Drops the manual status of an item, so it is classified as if never set, and logs the change
    * as an automatic "open". Unlike `setStatus(…, "open")` it does not count as a reopen.
-   * `source` is logged as for `setStatus`.
+   * `source` and `logAs` are logged as for `setStatus`.
    */
-  async clearStatus(nodeId: string, now = new Date(), source: string | null = null): Promise<StatusChange> {
-    const at = now.toISOString();
+  async clearStatus(nodeId: string, now = new Date(), source: string | null = null, logAs: LogAs | null = null): Promise<StatusChange> {
+    const change = logEntry("open", now.toISOString(), true, {}, source, logAs);
     await this.db.execute("DELETE FROM item_status WHERE node_id = $1", [nodeId]);
-    await this.db.execute("INSERT INTO status_log (node_id, status, changed_at, automatic, source) VALUES ($1, 'open', $2, 1, $3)", [nodeId, at, source]);
-    return { status: "open", at, automatic: true };
+    await this.insertLog(nodeId, change);
+    return change;
   }
 
   /**
@@ -493,7 +519,7 @@ export class Store {
         await this.db.execute(`UPDATE OR IGNORE ${table} SET node_id = $2 WHERE node_id = $1`, [from, to]);
         await this.db.execute(`DELETE FROM ${table} WHERE node_id = $1`, [from]);
       }
-      for (const table of ["status_log", "item_write_failure"]) await this.db.execute(`UPDATE ${table} SET node_id = $2 WHERE node_id = $1`, [from, to]);
+      for (const table of ["status_log", "item_log", "item_write_failure"]) await this.db.execute(`UPDATE ${table} SET node_id = $2 WHERE node_id = $1`, [from, to]);
     }
   }
 
@@ -631,6 +657,12 @@ export class Store {
  * What the app needs from its local storage: every public method of `Store`. The demo mode
  * swaps in a `MemoryStore` behind it (see `openStorage`).
  */
+/** The log entry of a status change; a follow-up's carries its date ("" for none) and "Remind me". */
+export function logEntry(status: Status, at: string, automatic: boolean, extra: StatusExtra, source: string | null, logAs: LogAs | null): StatusChange {
+  const followUp = status === "snoozed" && !logAs ? { until: extra.until ?? "", ...(extra.notify && { notify: true as const }) } : {};
+  return { status, at, automatic, ...(source && { source }), ...followUp, ...(logAs && { logAs }) };
+}
+
 export type Persistence = Pick<Store, keyof Store>;
 
 /**

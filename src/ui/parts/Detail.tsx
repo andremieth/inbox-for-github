@@ -1,23 +1,26 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AtSign, Bell, CalendarDays, ChevronDown, ChevronRight, Link, RefreshCw, UserPlus, X } from "lucide-react";
+import { AtSign, Bell, CalendarDays, ChevronDown, ChevronRight, Ellipsis, Link, RefreshCw, UserPlus, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type Ref } from "react";
 import type { Classified } from "../../classify";
-import type { Reopen, Status, StatusChange, WriteFailure } from "../../model";
+import type { LogEvent, ReactionContent, Reopen, Status, StatusChange, WriteFailure } from "../../model";
 import type { BotComments, DescriptionMode, OpenAt } from "../../store";
 import { findMention, isBot, latest, posts, sameLogin } from "../../timeline";
 import { explain } from "../explain";
 import { t, tKey, tKeys } from "../i18n";
-import { backChange, shownActivities, shownHistory } from "../activities";
+import { backEvent, localLines, shownActivities } from "../activities";
 import type { DoneAccess } from "../statusPlan";
 import { agoInSentence, firstLine, statusesFor, type LinkFormat } from "../labels";
 import { followUpOf } from "../followUp";
 import { datedText, type Dated } from "../plan";
 import { reviewLines, reviewNote, type ReviewLine } from "../reviewLines";
-import { ActivityRow, OpenedRow, ReviewRow, StatusChangeRow, WriteFailureRow } from "./ActivityRow";
+import { ActivityRow, LocalLineRow, OpenedRow, ReviewRow, WriteFailureRow } from "./ActivityRow";
 import { Avatar } from "./Avatar";
 import { Description } from "./Description";
 import { GitHubMark } from "./GitHubMark";
 import { OrcaMark } from "./OrcaMark";
+import { Reactions } from "./Reactions";
+import { HeaderMenu } from "./HeaderMenu";
+import type { MenuEntry } from "./ContextMenu";
 import { KindIcon, FollowUpChip, PlanChip } from "./ItemMarks";
 import type { StatusMap } from "../../workStatus";
 import { AttributeChips } from "./AttributeChips";
@@ -25,13 +28,8 @@ import { ItemProps } from "./ItemProps";
 import { Markdown } from "./Markdown";
 import { StatusIcon } from "./StatusIcon";
 import { Reply, type StateWrite } from "./Reply";
-import { Resizer } from "./Resizer";
 import { WhyHint } from "./WhyHint";
-import { useStoredSize } from "../useStoredSize";
 import { useGutter } from "../useGutter";
-
-/** Height of the docked comment field, in CSS pixels. */
-const REPLY_HEIGHT = { initial: 72, min: 56, max: 520 };
 
 interface Props {
   entry: Classified | null;
@@ -42,6 +40,8 @@ interface Props {
   hiddenBoards: string[];
   /** The item's status changes made in this app, oldest first. */
   history: StatusChange[];
+  /** The item's log besides its status (plans, filing, returns), oldest first. */
+  events: LogEvent[];
   /** Writes to GitHub that failed for this item, shown in its timeline. */
   failures: WriteFailure[];
   /** When the viewer last opened the item; in Assigned to me, older comments fold behind it. */
@@ -56,8 +56,6 @@ interface Props {
   /** Comments shown before older ones fold away; 0 shows all. */
   recentComments: number;
   botComments: BotComments;
-  /** The comment box sits below the scrolling thread instead of at its end. */
-  stickyReply: boolean;
   /** Where the view starts when the item opens. */
   openAt: OpenAt;
   /** How the description card shows its text. */
@@ -85,6 +83,8 @@ interface Props {
   reloading: boolean;
   /** Set when the detail shows as a pop-up: a close button joins the header actions. */
   onClose?: () => void;
+  /** Adds (`on`) or takes back the viewer's reaction on the description (`subject` is the item's id) or a comment. */
+  onReact?: (subject: string, content: ReactionContent, on: boolean) => void;
 }
 
 export function Detail({ entry, ...rest }: Props) {
@@ -101,7 +101,13 @@ export function Detail({ entry, ...rest }: Props) {
   return <DetailBody key={entry.item.id} entry={entry} {...rest} />;
 }
 
-function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failures, seenAt: lastSeen, attributes, statusMap, note, onNote, recentComments, botComments, stickyReply, openAt, descriptionMode, onReplied, onStatus, done = "on", onCopy, onReload, onOrca, orcaHint, onAssignMe, onPlan, onSnooze, onRemoveFollowUp, reloading, onClose }: Props & { entry: Classified }) {
+/** The log with the classification's return to the inbox added, until `useInbox` has stored one since the last decision. */
+function withReturn(events: LogEvent[], history: StatusChange[], back: LogEvent | null): LogEvent[] {
+  const decided = [...history.map((c) => c.at), ...events.filter((e) => e.kind !== "back").map((e) => e.at)].sort().at(-1) ?? "";
+  return back && !events.some((e) => e.kind === "back" && e.at > decided) ? [...events, back] : events;
+}
+
+function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, events, failures, seenAt: lastSeen, attributes, statusMap, note, onNote, recentComments, botComments, openAt, descriptionMode, onReplied, onStatus, done = "on", onCopy, onReload, onOrca, orcaHint, onAssignMe, onPlan, onSnooze, onRemoveFollowUp, reloading, onClose, onReact }: Props & { entry: Classified }) {
   const { item, status } = entry;
   const [opening, ...allPosts] = posts(item);
   // Inline comments stand behind their review's line, unless one mentions the viewer.
@@ -127,10 +133,10 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
     .filter((s) => s.activity.kind !== "reviewed" || !covered.has(`${s.activity.actor}@${s.activity.at}`))
     .filter((s) => !since || s.activity.at >= since);
   const timeline = [
-    ...visible.map((post, i) => ({ at: post.at, node: <Post key={`p-${post.at}-${i}`} post={post} review={reviewOf(post)} me={me} avatar={item.avatars[post.author]} trigger={isTrigger(post)} botsFolded={botComments === "folded"} innerRef={isTrigger(post) ? trigger : undefined} /> })),
+    ...visible.map((post, i) => ({ at: post.at, node: <Post key={`p-${post.at}-${i}`} post={post} review={reviewOf(post)} me={me} avatar={item.avatars[post.author]} trigger={isTrigger(post)} botsFolded={botComments === "folded"} innerRef={isTrigger(post) ? trigger : undefined} onReact={onReact} /> })),
     ...activities.map((shown, i) => ({ at: shown.activity.at, node: <ActivityRow key={`a-${shown.activity.at}-${i}`} shown={shown} me={me} itemUrl={item.url} /> })),
     ...reviewRows.map((line, i) => ({ at: line.at, node: <ReviewRow key={`r-${line.at}-${i}`} line={line} me={me} /> })),
-    ...[...shownHistory(history, item), ...[backChange(entry)].filter((c) => c !== null)].filter((c) => !since || c.at >= since).map((change, i) => ({ at: change.at, node: <StatusChangeRow key={`s-${change.at}-${i}`} change={change} /> })),
+    ...localLines(history, withReturn(events, history, backEvent(entry)), item).filter((l) => !since || l.at >= since).map((line, i) => ({ at: line.at, node: <LocalLineRow key={`s-${line.at}-${i}`} line={line} /> })),
     ...failures.filter((f) => !since || f.at >= since).map((failure, i) => ({ at: failure.at, node: <WriteFailureRow key={`f-${failure.at}-${i}`} failure={failure} /> })),
   ].sort((a, b) => a.at.localeCompare(b.at));
   const dividerAt = seenAt ? timeline.findIndex((row) => row.at > seenAt) : -1;
@@ -139,7 +145,6 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
   const timelineEnd = useRef<HTMLOListElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   useGutter(() => scroll.current);
-  const replyHeight = useStoredSize("reply-height", REPLY_HEIGHT);
 
   // Once per item: DetailBody is keyed by the item id, so a refresh does not scroll again.
   useEffect(() => {
@@ -150,12 +155,18 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
   // A plan is the item's "when" while it is open, so Plan, not Open, shows as chosen.
   const dated = datedOf(entry);
   const plan = dated ? datedText(dated) : null;
+  const assignable = !!onAssignMe && !item.closed && !item.assignees.some((a) => sameLogin(a, me));
+  const tools: MenuEntry[] = [
+    { label: t("detail.openOnGitHub"), icon: <GitHubMark />, keys: "G", onSelect: () => void openUrl(item.url) },
+    ...(onOrca ? [{ label: t(orcaHint ? "orca.addOpen" : "orca.open"), icon: <OrcaMark size={16} />, keys: "W", onSelect: onOrca }] : []),
+    { label: t("menu.copyLink"), icon: <Link size={14} />, keys: "C", divided: true, onSelect: () => onCopy("url") },
+    { label: t("action.refreshItem"), icon: <RefreshCw size={14} />, keys: "⌃R", disabled: reloading, onSelect: onReload },
+    ...(assignable ? [{ label: t("assign.action"), icon: <UserPlus size={14} />, keys: "⌃A", divided: true, onSelect: onAssignMe }] : []),
+  ];
   return (
     <section className="detail">
       <header className="pane-header" data-tauri-drag-region>
-        <span className="crumb">
-          {item.repo} <span className="crumb-sep">/</span> #{item.number}
-        </span>
+        <span className="crumb">{t(item.kind === "pr" ? "detail.headingPr" : "detail.headingIssue")}</span>
         <div className="header-actions">
           {item.closed && (
             <span className="chip closed-chip" title={t("closed.statusHint")}>
@@ -176,8 +187,8 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
                     title={`${plan?.title ?? t("detail.plan")} (P)`}
                     onClick={(e) => onPlan(e.currentTarget.getBoundingClientRect())}
                   >
-                    <CalendarDays size={13} strokeWidth={1.75} color="var(--st-planned)" aria-hidden />
-                    {plan?.text ?? t("detail.plan")}
+                    <CalendarDays size={14} strokeWidth={1.75} color="var(--st-planned)" aria-hidden />
+                    <span className="segment-label">{plan?.text ?? t("detail.plan")}</span>
                     <ChevronDown size={12} className="segment-more" />
                   </button>
                 ),
@@ -189,45 +200,53 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
                   title={`${s.title} (${s.key})`}
                   onClick={(e) => (s.id === "snoozed" ? onSnooze(e.currentTarget.getBoundingClientRect()) : onStatus(s.id))}
                 >
-                  <StatusIcon status={s.id} size={13} />
-                  {s.title}
+                  <StatusIcon status={s.id} size={14} />
+                  <span className="segment-label">{s.title}</span>
                   {s.id === "snoozed" && <ChevronDown size={12} className="segment-more" />}
                 </button>,
               ])}
             </div>
           )}
-          {onAssignMe && !item.closed && !item.assignees.some((a) => sameLogin(a, me)) && (
-            <button className="chip-btn" title={`${t("assign.action")} (${tKey("⌃A")})`} aria-label={t("assign.action")} onClick={onAssignMe}>
-              <UserPlus size={15} />
-            </button>
-          )}
-          <button className="chip-btn" title={`${t("detail.openOnGitHub")} (${tKey("⌃O")})`} aria-label={t("detail.openOnGitHub")} onClick={() => void openUrl(item.url)}>
-            <GitHubMark />
-          </button>
-          {onOrca && (
-            <button className="chip-btn" title={`${t(orcaHint ? "orca.addOpen" : "orca.open")} (W)${orcaHint ? `\n${orcaHint}` : ""}`} aria-label={t(orcaHint ? "orca.addOpen" : "orca.open")} onClick={onOrca}>
-              <OrcaMark size={18} />
-            </button>
-          )}
-          <button className="chip-btn" title={`${t("action.refreshItem")} (${tKey("⌃R")})`} aria-label={t("action.refreshItem")} onClick={onReload} disabled={reloading}>
-            <RefreshCw size={15} className={reloading ? "spin" : undefined} />
-          </button>
-          <button className="chip-btn" title={`${t("menu.copyLink")} (C)`} aria-label={t("menu.copyLink")} onClick={() => onCopy("url")}>
-            <Link size={15} />
-          </button>
           <WhyHint why={explain(entry, reopenOn, me, dated)} />
+          <span className="header-full">
+            <button className="chip-btn" title={`${t("detail.openOnGitHub")} (G)`} aria-label={t("detail.openOnGitHub")} onClick={() => void openUrl(item.url)}>
+              <GitHubMark size={16} />
+            </button>
+            {onOrca && (
+              <button className="chip-btn" title={`${t(orcaHint ? "orca.addOpen" : "orca.open")} (W)${orcaHint ? `\n${orcaHint}` : ""}`} aria-label={t(orcaHint ? "orca.addOpen" : "orca.open")} onClick={onOrca}>
+                <OrcaMark size={16} />
+              </button>
+            )}
+            <button className="chip-btn" title={`${t("menu.copyLink")} (C)`} aria-label={t("menu.copyLink")} onClick={() => onCopy("url")}>
+              <Link size={16} />
+            </button>
+            <button className="chip-btn" title={`${t("action.refreshItem")} (${tKey("⌃R")})`} aria-label={t("action.refreshItem")} onClick={onReload} disabled={reloading}>
+              <RefreshCw size={16} className={reloading ? "spin" : undefined} />
+            </button>
+            {assignable && (
+              <button className="chip-btn" title={`${t("assign.action")} (${tKey("⌃A")})`} aria-label={t("assign.action")} onClick={onAssignMe}>
+                <UserPlus size={16} />
+              </button>
+            )}
+          </span>
+          <span className="header-compact">
+            <HeaderMenu icon={<Ellipsis size={16} />} title={t("detail.more")} entries={tools} />
+          </span>
           {onClose && (
             <button className="chip-btn" onClick={onClose} title={t("popup.close")} aria-label={t("popup.close")}>
-              <X size={15} />
+              <X size={16} />
             </button>
           )}
         </div>
       </header>
       <div className="detail-scroll" ref={scroll}>
         <div className="detail-column">
+          <p className="detail-crumb">
+            {item.repo} #{item.number}
+          </p>
           <h2 className="detail-title">{item.title}</h2>
           <div className="detail-meta">
-            <KindIcon item={item} size={18} />
+            <KindIcon item={item} size={20} />
             {dated && <PlanChip dated={dated} onPlan={onPlan} />}
             <FollowUpChip entry={entry} onRemove={followUpOf(entry) ? onRemoveFollowUp : undefined} />
             <AttributeChips keys={attributes} item={item} me={me} hiddenBoards={hiddenBoards} statusMap={statusMap} interactive />
@@ -235,7 +254,7 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
             {item.draft && <span className="draft">{t("detail.draft")}</span>}
           </div>
 
-          <Description body={opening.body} me={me} mode={descriptionMode} innerRef={isTrigger(opening) ? descriptionRef : undefined} />
+          <Description body={opening.body} reactions={opening.reactions} onReact={opening.id && onReact ? (content, on) => onReact(opening.id!, content, on) : undefined} me={me} mode={descriptionMode} innerRef={isTrigger(opening) ? descriptionRef : undefined} />
 
           <PrivateNote key={item.id} note={note} onSave={(text) => onNote(item.id, text)} />
 
@@ -254,17 +273,9 @@ function DetailBody({ entry, me, reopenOn, datedOf, hiddenBoards, history, failu
             )}
           </ol>
 
-          {!stickyReply && <Reply item={item} me={me} onSent={(change) => onReplied(item.id, change)} />}
+          <Reply item={item} me={me} onSent={(change) => onReplied(item.id, change)} />
         </div>
       </div>
-      {stickyReply && (
-        <div className="reply-dock">
-          <Resizer label={t("pane.reply")} axis="y" width={replyHeight.size} onResize={replyHeight.resize} onReset={replyHeight.reset} />
-          <div className="detail-column">
-            <Reply item={item} me={me} onSent={(change) => onReplied(item.id, change)} fieldHeight={replyHeight.size} />
-          </div>
-        </div>
-      )}
     </section>
   );
 }
@@ -280,15 +291,16 @@ interface PostProps {
   /** Bot comments start folded. */
   botsFolded?: boolean;
   innerRef?: Ref<HTMLLIElement>;
+  onReact?: Props["onReact"];
 }
 
 /** One post; comments by bots can fold to their first line, since they are mostly reports. */
-function Post({ post, review, me, avatar, trigger = false, botsFolded = true, innerRef }: PostProps) {
+function Post({ post, review, me, avatar, trigger = false, botsFolded = true, innerRef, onReact }: PostProps) {
   const note = review && reviewNote(review);
   const bot = isBot(post.author);
   const [open, setOpen] = useState(!bot || !botsFolded);
   const mentionsMe = findMention(post.body, me) !== null;
-  const kind = mentionsMe ? (sameLogin(post.author, me) ? " reminder" : " mention") : "";
+  const kind = mentionsMe ? (sameLogin(post.author, me) ? " self-mention" : " mention") : "";
   return (
     <li ref={innerRef} className={`post${kind}${bot ? " bot" : ""}${trigger ? " trigger" : ""}`}>
       <div
@@ -314,12 +326,13 @@ function Post({ post, review, me, avatar, trigger = false, botsFolded = true, in
         )}
         {kind && (
           <span className="mention-tag">
-            {kind === " reminder" ? <Bell size={13} /> : <AtSign size={13} />}
-            {kind === " reminder" ? t("post.reminder") : t("post.mentioned")}
+            {kind === " self-mention" ? <Bell size={12} /> : <AtSign size={12} />}
+            {kind === " self-mention" ? t("post.selfMention") : t("post.mentioned")}
           </span>
         )}
       </div>
       <div className="post-body">{open ? <Markdown source={post.body} me={me} /> : <p className="post-summary">{firstLine(post.body)}</p>}</div>
+      <Reactions reactions={post.reactions} onToggle={post.id && onReact ? (content, on) => onReact(post.id!, content, on) : undefined} />
     </li>
   );
 }

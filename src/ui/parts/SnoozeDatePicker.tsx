@@ -4,7 +4,9 @@ import { t } from "../i18n";
 import { daysInMonth, daysOf, HOURS, MINUTES, MONTHS, yearsFrom } from "../segments";
 import { localDay } from "../assignments";
 import { followUpOn } from "../snooze";
+import { MonthGrid } from "./MonthGrid";
 import { SegmentField } from "./SegmentField";
+import { DIALOG_MOTION } from "../motion";
 
 interface When {
   day: number;
@@ -25,8 +27,8 @@ function momentOf(when: When): Date | null {
  * A small dialog to snooze until a chosen date and time, starting at tomorrow 09:00, or with
  * `day` to plan for a chosen day. Date (DD.MM.YYYY) and time (24-hour HH:MM) are `SegmentField`s,
  * whatever the system's format; a day past the end of a newly chosen month moves to its last day.
- * Enter or the button confirms, Escape or a click outside cancels. Past times are not accepted,
- * and without a time neither is today.
+ * Below them a `MonthGrid` picks the day with the pointer. Enter or the button confirms, Escape or
+ * a click outside cancels. Past times are not accepted, and without a time neither is today.
  *
  * @param onPick  Called with the chosen time as ISO 8601; with `day`, local midnight of the day.
  * @param day     Asks for a day only, to plan for it: the dialog says so and has no time field.
@@ -38,10 +40,12 @@ function momentOf(when: When): Date | null {
 export function SnoozeDatePicker({ onPick, onClose, day = false }: { onPick: (until: string) => void; onClose: () => void; day?: boolean }) {
   const [openedAt] = useState(() => Date.now());
   const [when, setWhen] = useState<When>(() => {
-    const d = new Date(followUpOn(localDay(new Date(Date.now() + 86_400_000))));
+    const now = new Date();
+    const d = new Date(followUpOn(localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1))));
     return { day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear(), hours: day ? 0 : d.getHours(), minutes: day ? 0 : d.getMinutes() };
   });
-  const years = yearsFrom(new Date(openedAt).getFullYear());
+  const opened = new Date(openedAt);
+  const years = yearsFrom(opened.getFullYear());
   const at = momentOf(when);
   const valid = at !== null && at.getTime() > openedAt;
   const pick = () => {
@@ -73,9 +77,7 @@ export function SnoozeDatePicker({ onPick, onClose, day = false }: { onPick: (un
         className="dialog snooze-picker"
         role="dialog"
         aria-label={t("snooze.pick")}
-        initial={{ opacity: 0, scale: 0.97 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.16 }}
+        {...DIALOG_MOTION}
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
@@ -107,6 +109,12 @@ export function SnoozeDatePicker({ onPick, onClose, day = false }: { onPick: (un
             />
           )}
         </div>
+        <MonthGrid
+          value={{ year: when.year, month: Math.min(Math.max(when.month, MONTHS.min), MONTHS.max), day: when.day }}
+          from={localDay(new Date(opened.getFullYear(), opened.getMonth(), opened.getDate() + (day ? 1 : 0)))}
+          lastYear={years.max}
+          onPick={(picked) => setWhen((w) => ({ ...w, ...picked }))}
+        />
         <div className="dialog-actions">
           <button type="button" className="btn" onClick={onClose}>
             {t("snooze.cancel")}

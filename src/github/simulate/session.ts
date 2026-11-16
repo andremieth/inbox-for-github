@@ -15,7 +15,7 @@ import { lockedDone, planStatus } from "../../ui/statusPlan";
 import { inDoneBar } from "../../ui/doneBar";
 import { addComment, assignSelf, setOpen, unassignSelf, type CloseReason } from "../comment";
 import { addRequested, canDelta, DELTA_OVERLAP_MS, findTransfers, mergeDelta, mergeReloaded, transferCandidates, unseenReviews, withdrawReviews, withinClosedWindow } from "../delta";
-import { fetchItem, fetchItems, fetchItemsById, fetchReviewIds } from "../fetch";
+import { fetchItem, fetchItems, fetchItemsById, fetchReviewIds, SEARCH_STOP } from "../fetch";
 import type { GitHubSimulator, Ref } from "./world";
 
 const TOKEN = "simulated-token";
@@ -70,7 +70,7 @@ export class InboxSession {
     settings: SessionSettings = {},
   ) {
     this.me = world.viewer;
-    this.settings = { orgs: world.orgs, closedDays: 7, loadBoards: true, maxItems: 200, reopenOn: REOPEN_DEFAULT, reviewOnCommits: true, askRules: ASK_RULES_DEFAULT, rules: {}, directOnly: {}, ...settings };
+    this.settings = { orgs: world.orgs, closedDays: 7, loadBoards: true, maxItems: SEARCH_STOP, reopenOn: REOPEN_DEFAULT, reviewOnCommits: true, askRules: ASK_RULES_DEFAULT, rules: {}, directOnly: {}, ...settings };
   }
 
   private get nowMs(): number {
@@ -174,7 +174,7 @@ export class InboxSession {
   }
 
   /** D or O or a snooze choice, as `App.applyStatus` carries it out, in the item's view or in `view`. */
-  choose(ref: Ref, status: Status, until?: string, view?: View): void {
+  choose(ref: Ref, status: Status, until?: string, view?: View, notify = false): void {
     const c = this.entry(ref);
     const previous = this.statuses.get(ref.id);
     const logged = this.log.get(ref.id) ?? [];
@@ -192,7 +192,7 @@ export class InboxSession {
     const plan = planStatus(c, status, this.me, shown);
     switch (plan.do) {
       case "resume":
-        if (c.status === "snoozed") this.write(ref.id, "snoozed", false, c.until ? { until: c.until } : {});
+        if (c.status === "snoozed") this.write(ref.id, "snoozed", false, c.until ? { until: c.until, ...(c.notify && { notify: true }) } : {});
         else this.statuses.delete(ref.id);
         break;
       case "clear":
@@ -218,8 +218,8 @@ export class InboxSession {
         this.write(ref.id, "done", false, { handoff: snapshotOf(c.item) });
         break;
       case "set":
-        if (c.item.closed || (c.status === plan.status && until === undefined) || (plan.status === "snoozed" && followUpUnchanged(c, until ?? ""))) return;
-        this.write(ref.id, plan.status, false, plan.status === "snoozed" ? followUpExtra(c, until ?? "") : {});
+        if (c.item.closed || (c.status === plan.status && until === undefined) || (plan.status === "snoozed" && followUpUnchanged(c, until ?? "", notify))) return;
+        this.write(ref.id, plan.status, false, plan.status === "snoozed" ? followUpExtra(c, until ?? "", notify) : {});
         if (plan.status !== "open") this.handledUntil.set(ref.id, this.world.stamp());
         // F, as `App.followUp`: an item has one when.
         if (plan.status === "snoozed") this.today = unplan(this.today, [ref.id]);
@@ -248,20 +248,30 @@ export class InboxSession {
     this.when(ref, (at) => withPlan(this.today, ref.id, day, at));
   }
 
-  /** F with a time (or without): the item waits for a follow-up, in place if it belongs to a table. */
-  snooze(ref: Ref, until?: string): void {
-    this.choose(ref, "snoozed", until);
+  /** F with a time (or without), with "Remind me" as `notify`: the item waits for a follow-up, in place if it belongs to a table. */
+  snooze(ref: Ref, until?: string, notify = false): void {
+    this.choose(ref, "snoozed", until, undefined, notify);
   }
 
-  /** X or the × in the chip: takes the follow-up off; a finished part stays done. */
+  /** X or the × in the chip: takes the follow-up off and, unless a finished part stays done, gives back what it handled, as `App.removeFollowUp`. */
   clearFollowUp(ref: Ref): void {
     const previous = this.statuses.get(ref.id);
     const logged = this.log.get(ref.id) ?? [];
+    const handledBefore = this.handledUntil.get(ref.id);
+    const finished = !!this.entry(ref).updates;
     this.endFollowUp(ref.id);
+    if (!finished) this.handledUntil.delete(ref.id);
     this.undoStep = () => {
       this.log.set(ref.id, logged);
       if (previous) this.statuses.set(ref.id, previous);
+      if (handledBefore) this.handledUntil.set(ref.id, handledBefore);
     };
+  }
+
+  /** X on a planned or pinned item, as `App.planFor(c, null)`: the plan goes and gives back what it handled. */
+  clearPlan(ref: Ref): void {
+    this.today = unplan(this.today, [ref.id]);
+    this.handledUntil.delete(ref.id);
   }
 
   /** A new pin or plan, where T and P take the item (see `isPinnable`); its follow-up ends, as `App.followUpEnds` has it. */

@@ -1,10 +1,13 @@
-import type { Activity, Comment, Item, Org, PullState, Reason, ReviewRequest, ReviewState, ReviewThread } from "../model";
+import type { Activity, Comment, Item, Org, PullState, Reaction, ReactionContent, Reason, ReviewRequest, ReviewState, ReviewThread } from "../model";
 import { fetchBoards } from "./boards";
 import { graphql, TimeoutError } from "./client";
 import { log } from "../log";
 import { mentionsOf, sameLogin } from "../timeline";
 
 const PAGE_SIZE = 50;
+
+/** Where GitHub's search stops: it returns no hits past the first 1000. */
+export const SEARCH_STOP = 1000;
 
 /**
  * One search per qualifier. `involves:@me` already covers assignments, mentions, authorship and
@@ -16,14 +19,20 @@ const QUALIFIERS: Partial<Record<Reason, string>> = {
   review: "is:pr review-requested:@me",
 };
 
+/** GitHub's eight reactions, in the order it lists them in `reactionGroups`. */
+export const REACTION_ORDER: ReactionContent[] = ["THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"];
+
+/** Counts only: `reactors(first: n)` for names would triple a search page (see `docs/reference/github-api.md`). */
+const REACTIONS = "reactionGroups { content viewerHasReacted reactors { totalCount } }";
+
 // GraphQL fragments cannot span Issue and PullRequest, so the shared selection is inlined twice.
 const ITEM_FIELDS = `
-  id number title url createdAt updatedAt body closed closedAt
+  id number title url createdAt updatedAt body closed closedAt ${REACTIONS}
   author { login __typename avatarUrl }
   repository { nameWithOwner }
   labels(first: 20) { nodes { name color } }
   assignees(first: 10) { nodes { login } }
-  comments(last: 100) { nodes { author { login __typename avatarUrl } body createdAt } }
+  comments(last: 100) { nodes { id author { login __typename avatarUrl } body createdAt ${REACTIONS} } }
 `;
 
 const ASSIGNED =
@@ -55,11 +64,11 @@ const PR_FIELDS = `
   }
   # Own window, so a long run of commits cannot push review requests and other events out.
   commitItems: timelineItems(itemTypes: [PULL_REQUEST_COMMIT], last: 20) { nodes { ... on PullRequestCommit { commit { committedDate author { user { login } } } } } }
-  reviews(last: 30) { nodes { id url author { login __typename avatarUrl } body state submittedAt } }
+  reviews(last: 30) { nodes { id url author { login __typename avatarUrl } body state submittedAt ${REACTIONS} } }
   reviewThreads(last: 30) {
     nodes {
       path line originalLine isResolved isOutdated resolvedBy { login }
-      comments(last: 20) { nodes { author { login __typename avatarUrl } body createdAt url replyTo { id } pullRequestReview { id } } }
+      comments(last: 20) { nodes { id author { login __typename avatarUrl } body createdAt ${REACTIONS} url replyTo { id } pullRequestReview { id } } }
     }
   }
 `;
@@ -80,6 +89,7 @@ const ISSUE_FIELDS = `
 const QUERY = `
 query ($q: String!, $first: Int!, $after: String) {
   search(type: ISSUE, query: $q, first: $first, after: $after) {
+    issueCount
     pageInfo { hasNextPage endCursor }
     nodes {
       __typename
@@ -100,10 +110,19 @@ interface RawReviewer {
   slug?: string;
 }
 
+/** GitHub lists all eight emoji, also those nobody used. */
+export interface RawReactionGroup {
+  content: ReactionContent;
+  viewerHasReacted: boolean;
+  reactors: { totalCount: number };
+}
+
 interface RawComment {
+  id?: string;
   author: RawAuthor | null;
   body: string;
   createdAt: string;
+  reactionGroups?: RawReactionGroup[] | null;
 }
 
 interface RawThreadComment extends RawComment {
@@ -121,6 +140,7 @@ export interface RawItem {
   createdAt: string;
   updatedAt: string;
   body: string;
+  reactionGroups?: RawReactionGroup[] | null;
   closed?: boolean;
   closedAt?: string | null;
   merged?: boolean;
@@ -129,7 +149,7 @@ export interface RawItem {
   labels: { nodes: { name: string; color: string }[] };
   assignees: { nodes: { login: string }[] };
   comments: { nodes: RawComment[] };
-  reviews?: { nodes: { id?: string; url?: string; author: RawAuthor | null; body: string; state: ReviewState; submittedAt: string | null }[] };
+  reviews?: { nodes: { id?: string; url?: string; author: RawAuthor | null; body: string; state: ReviewState; submittedAt: string | null; reactionGroups?: RawReactionGroup[] | null }[] };
   reviewThreads?: {
     nodes: {
       path: string;
@@ -171,7 +191,7 @@ export interface RawEvent {
 }
 
 interface SearchResult {
-  search: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawItem[] };
+  search: { issueCount: number; pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawItem[] };
 }
 
 export interface Viewer {
@@ -282,6 +302,8 @@ export interface FetchOptions {
   pageSize?: number;
   /** Only items closed before then, and no open ones: widening the closed window loads just the days missing. */
   closedBefore?: Date;
+  /** Called with each search string that found more hits than were read, e.g. past `SEARCH_STOP`. */
+  onCut?: (query: string) => void;
 }
 
 /**
@@ -308,13 +330,15 @@ export function searchStates(now: Date, closedDays: number, closedBefore?: Date)
  * Runs one search per qualifier in `QUALIFIERS` over all owners (GitHub ORs repeated `org:` and
  * `user:` qualifiers) and merges the hits by node id; "assigned" and "mentioned" come from the
  * item's assignees and posts, so an item carries all its reasons.
- * Each search reads at most `limit` hits, in pages of 50; only the last 100 comments per item
- * are loaded. Boards come from a second, failure-tolerant query (see `fetchBoards`), skipped when
- * `boards` is false.
+ * Each search reads up to `limit` hits, by default all GitHub returns, in pages of 50 (smaller
+ * after GitHub timed one out, see `search`; a full fetch tries 50 again), the most
+ * recently updated first, so a search cut at `SEARCH_STOP` misses only the oldest and the same
+ * ones each time; `onCut` hears of every cut search. Only the last 100 comments per item are loaded. Boards come from a second, failure-tolerant query (see
+ * `fetchBoards`), skipped when `boards` is false.
  *
  * @param token  GitHub token with `repo` and `read:org` scope.
  * @param orgs   Owner logins, e.g. `["octo-org"]`. An empty list returns no items.
- * @param options.limit       Hits per search (two per state); GitHub's search stops at 1000.
+ * @param options.limit       Hits per search (two per state); GitHub's search stops at `SEARCH_STOP`.
  * @param options.closedDays  How far back closed and merged items are loaded; 0 loads none.
  * @param options.closedBefore  Loads only the closed items from `closedDays` back up to that day
  *                            (see `searchStates`), e.g. the days a wider window adds.
@@ -326,16 +350,20 @@ export function searchStates(now: Date, closedDays: number, closedBefore?: Date)
  * @example
  *   const items = await fetchItems(token, ["octo-org", "octo-labs"], { me: "octocat", closedDays: 7 });
  */
-export async function fetchItems(token: string, orgs: string[], { limit = 200, closedDays = 0, me = "", boards = true, now = new Date(), signal, since, pageSize = PAGE_SIZE, closedBefore }: FetchOptions = {}): Promise<Item[]> {
+export async function fetchItems(token: string, orgs: string[], { limit = SEARCH_STOP, closedDays = 0, me = "", boards = true, now = new Date(), signal, since, pageSize = PAGE_SIZE, closedBefore, onCut }: FetchOptions = {}): Promise<Item[]> {
   if (orgs.length === 0) return [];
   const scope = scopeOf(orgs, me);
   const byId = new Map<string, Item>();
   const updated = since ? ` updated:>=${since.toISOString().slice(0, 19)}Z` : "";
+  if (!since && !closedBefore) pageCap = Number.POSITIVE_INFINITY;
   const searches = searchStates(now, closedDays, closedBefore).flatMap((state) => (Object.keys(QUALIFIERS) as Reason[]).map((reason) => ({ state, reason })));
 
   await Promise.all(
     searches.map(async ({ state, reason }) => {
-      for (const raw of await search(token, `${state} ${QUALIFIERS[reason]} ${scope}${updated}`, limit, pageSize, signal)) {
+      const q = `${state} ${QUALIFIERS[reason]} ${scope}${updated} sort:updated-desc`;
+      const { hits, cut } = await search(token, q, limit, pageSize, signal);
+      if (cut) onCut?.(q);
+      for (const raw of hits) {
         const item = byId.get(raw.id) ?? toItem(raw);
         for (const r of [reason, ...reasonsOf(item, me)]) if (!item.reasons.includes(r)) item.reasons.push(r);
         byId.set(raw.id, item);
@@ -485,17 +513,19 @@ export function reasonsOf(item: Item, me: string): Reason[] {
 /** The smallest search page; below it a timeout is the search's failure. */
 const MIN_PAGE_SIZE = 5;
 
-/** What search pages are held to once GitHub timed one out: half the size that failed. No bound before that. */
+/** What search pages are held to once GitHub timed one out: half the size that failed, until the next full fetch. */
 let pageCap = Number.POSITIVE_INFINITY;
 
 /**
  * Reads up to `limit` hits of one search, in pages of `pageSize`. A page GitHub drops after its
  * ten seconds (`TimeoutError`) is asked again at half the size, down to `MIN_PAGE_SIZE`; the
- * size that worked holds for every later page and search (`pageCap`), so a slow organization
- * costs the wait once and not on every refresh.
+ * size that worked holds for every later page and search (`pageCap`) until the next full fetch,
+ * so a slow organization costs the wait once per full fetch and not on every delta.
  */
-async function search(token: string, q: string, limit: number, pageSize: number, signal?: AbortSignal): Promise<RawItem[]> {
+async function search(token: string, q: string, limit: number, pageSize: number, signal?: AbortSignal): Promise<{ hits: RawItem[]; cut: boolean }> {
   const hits: RawItem[] = [];
+  let read = 0;
+  let found = 0;
   let after: string | null = null;
   let size = pageSize;
   for (let asked = 0; asked < limit; asked += size) {
@@ -510,11 +540,13 @@ async function search(token: string, q: string, limit: number, pageSize: number,
         log.debug("search page timed out", { first: size, next: pageCap });
       }
     }
+    read += data.search.nodes.length;
+    found = data.search.issueCount;
     hits.push(...data.search.nodes.filter((node) => node?.id));
     if (!data.search.pageInfo.hasNextPage) break;
     after = data.search.pageInfo.endCursor;
   }
-  return hits;
+  return { hits, cut: found > read };
 }
 
 /**
@@ -539,6 +571,7 @@ export function toItem(raw: RawItem): Item {
     url: raw.url,
     author: toLogin(raw.author),
     body: raw.body,
+    reactions: reactionsOf(raw.reactionGroups),
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     labels: raw.labels.nodes,
@@ -569,13 +602,24 @@ function transferOf(raw: RawItem): Pick<Item, "transferredFrom"> {
 }
 
 function toComment(raw: RawComment, where?: string): Comment {
-  return { author: toLogin(raw.author), body: raw.body, createdAt: raw.createdAt, ...(where && { where }) };
+  return { ...(raw.id && { id: raw.id }), author: toLogin(raw.author), body: raw.body, createdAt: raw.createdAt, ...(where && { where }), reactions: reactionsOf(raw.reactionGroups) };
+}
+
+/**
+ * The emoji someone used, in GitHub's order, as `Reaction`s; also for a mutation's answer.
+ *
+ * @example
+ *   reactionsOf([{ content: "HEART", viewerHasReacted: true, reactors: { totalCount: 2 } }, { content: "EYES", viewerHasReacted: false, reactors: { totalCount: 0 } }]);
+ *   // [{ content: "HEART", count: 2, mine: true }]
+ */
+export function reactionsOf(groups: RawReactionGroup[] | null | undefined): Reaction[] {
+  return (groups ?? []).filter((g) => g.reactors.totalCount > 0).map((g) => ({ content: g.content, count: g.reactors.totalCount, mine: g.viewerHasReacted }));
 }
 
 function reviewComments(raw: RawItem): Comment[] {
   const summaries = (raw.reviews?.nodes ?? [])
     .filter((r) => r.submittedAt && r.body.trim())
-    .map((r) => ({ ...toComment({ author: r.author, body: r.body, createdAt: r.submittedAt! }, "Review"), reviewState: r.state }));
+    .map((r) => ({ ...toComment({ id: r.id, author: r.author, body: r.body, createdAt: r.submittedAt!, reactionGroups: r.reactionGroups }, "Review"), reviewState: r.state }));
   const inline = (raw.reviewThreads?.nodes ?? []).flatMap((thread) => {
     const line = thread.line ?? thread.originalLine;
     const where = line ? `${thread.path}:${line}` : thread.path;

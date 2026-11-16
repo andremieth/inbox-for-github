@@ -39,7 +39,7 @@ gh CLI token ──► src/github (GraphQL) ──► Item[] ──► store cac
 ## Buckets and statuses
 
 - **Statuses** (`Status` in `src/model.ts`) are the viewer's own: `open`, `snoozed`, `done`.
-  They live in `item_status` with a log in `status_log`; nothing is sent to GitHub.
+  They live in `item_status` with a log in `status_log` and `item_log`; nothing is sent to GitHub.
 - **Handled-until** (`item_handled`; `Store.handledUntil`, `src/handledUntil.ts`) is the one
   cutoff for asks: `classify` counts only asks newer than it. D in the inbox, P, T and F set it
   to now (`handledStep`, with undo); X leaves it. P, T and F also mark the item seen while it is
@@ -95,8 +95,8 @@ gh CLI token ──► src/github (GraphQL) ──► Item[] ──► store cac
 - **Feedback, thread replies, closings** (asks `feedback`, `reply`, `closed`; `src/feedback.ts`):
   posts and reviews by others since the viewer's last answer (`lastAnswerAt`) on an item of the
   tables, answers in a review thread the viewer wrote in on another's pull request, and an own item
-  closed by someone else. The settings `ownFeedback`, `assignedFeedback`, `threadReplies` and
-  `ownClosed` switch them (`AskRules`). D on such an item finishes nothing (`planStatus` "file"):
+  closed by someone else. They always ask (`ASK_RULES_DEFAULT`); `AskRules` stays a parameter of
+  `classify` so tests can switch them off one by one. D on such an item finishes nothing (`planStatus` "file"):
   it sets handled-until, and `classify` drops the asks from before it. A
   reply or feedback after it asks again like a push does, and leaves a follow-up running.
 - **Plan** (P, a day) and **Today** (T, a pin) are settings, not statuses (`planned`, `focus`,
@@ -129,10 +129,17 @@ gh CLI token ──► src/github (GraphQL) ──► Item[] ──► store cac
   loses the reason "review" and, left without a reason, the cache (`withdrawReviews`); an id the
   cache does not hold as a review request is loaded by id and gets it (`unseenReviews`,
   `addRequested`, at most 50 per delta), whether or not the request moved `updatedAt`.
+- **Pending writes:** assigning or unassigning oneself, and reacting, shows at once. Every fetch
+  or reload that started before GitHub confirmed the write puts that change back on the item
+  (`trackPending`, `withPending`), so one that ran before GitHub had the write does not take it
+  back, also when it lands after the write; a fetch that started later drops it. A failed write's
+  change is dropped at once, so its rollback stays. GitHub's answer to a write is put on with the
+  writes still on their way on top, so two quick changes do not flicker.
 - **Coverage:** the cache's `scope` records what it holds (closed days, boards, item limit;
   `encodeScope`). Narrowing a setting filters locally. A longer closed window runs a delta plus
   the closed searches over the added days only (`widensClosed`, `closedBefore`); switching boards
-  on loads only the boards. A higher item limit has no such shortcut and fetches in full.
+  on loads only the boards. The item limit is always GitHub's 1000 (`SEARCH_STOP`); a cache
+  from a lower limit, set before it was removed, fetches in full once.
 - **Transfers:** an issue moved to another repository comes back under a new node id. Every
   fetch, full or delta, compares the issues that name `transferredFrom` with the items cached
   before it (`findTransfers`); the old copy leaves the cache, and its status, log, note, seen,
@@ -142,7 +149,12 @@ gh CLI token ──► src/github (GraphQL) ──► Item[] ──► store cac
   view) a `nodes` query; both put the answer in through `takeReloaded`, which also takes over a
   transfer the answer shows. For an id GitHub no longer resolves (`NOT_FOUND`), the cached issues
   that may be its transferred copy are loaded by id (`transferCandidates`, about a point each);
-  failing that, a refresh runs, and what is still unresolved leaves the cache (`dropGone`).
+  failing that, a refresh runs, and what is still unresolved leaves the cache and loses its pin
+  or plan (`dropGone`), unless the token's scopes are unknown or lacking, when GitHub answers
+  `NOT_FOUND` for private items as well. Once per launch and day, after the launch's first
+  refresh, the pinned and planned items that are not loaded go through `reloadItems` too, so a
+  deleted one or one the viewer lost access to drops its plan; one that is only outside the item
+  limit or a filtered repository still resolves and keeps it.
 - **Budget:** below `LOW_BUDGET` (400 points) automatic refreshes pause until GitHub's reset
   (`pausedUntil`); a manual refresh still runs.
 - **In the background:** the refresh timer is a plain `setInterval` and keeps running only
@@ -166,22 +178,24 @@ before `Builder::setup` runs. The web view's localStorage (collapsed bars, sort 
 notification permission are not carried over.
 
 `SCHEMA` in `src/store.ts` creates every table in its current shape; `dropLeftovers` removes
-what older builds' databases still hold: the table `item_reminder`, the column
-`item_status.keep_open`, the settings keys `snoozeAuthored`, `orbSeeds`, `hoverActs` and
-`calendarTime`, and rewrites the retired values `tableGrouping` "time" and `reopenOn`
-"mention-or-assigned-post". No column has been added since the schema was created; a new one
-would be added with `ALTER TABLE` in `Store.open`, guarded by a `PRAGMA table_info` check.
+what older builds' databases still hold: the table `item_reminder`, the columns
+`item_status.keep_open` and `item_status.due` (written last by 0.2.0), the settings keys
+`Settings` no longer has (named one by one), and rewrites the retired values `tableGrouping`
+"time" and `reopenOn` "mention-or-assigned-post". It also adds the columns added since the schema
+was created (`item_status.notify`; `status_log.until`, `notify`, `log_as`), each guarded by a
+`PRAGMA table_info` check.
 
 | Table | Holds |
 |---|---|
 | `settings` | one row per settings key, JSON values (`Settings` in `src/store.ts`) |
-| `item_status` | the current status per item, `until`, `handoff`; `due` is left over from the due state, not read since 2026-10-28 |
+| `item_status` | the current status per item, `until`, `handoff`, and `notify` for a follow-up with "Remind me" |
 | `item_handled` | one `handled_until` per item: asks from before it are not new, the only cutoff `classify` reads. Filled once when the table is created, from `filedAt`, `plannedAt` (while pinned or planned), a stored done without hand-off and a follow-up start (`deriveHandledUntil`), into `item_handled_fill`, 400 rows per INSERT, then renamed, so the table exists only whole; a fill cut short is redone on the next start. Reset statuses clears it; a transfer moves it |
-| `status_log` | every status change, with `automatic` for changes by the app and `source` for what caused it (see [`local-development.md`](local-development.md#the-local-database)) |
+| `status_log` | every status change, with `automatic` for changes by the app and `source` for what caused it (see [`local-development.md`](local-development.md#the-local-database)); since 2026-11-13 a follow-up's `until` ("" for none) and `notify`, and `log_as` where the timeline names a change by what the viewer did (`LogAs`) |
+| `item_log` | the timeline's lines besides statuses (`LogEvent`): `plan`, `plan-removed`, `plan-kept` with the day in `value`, `filed`, and `back` with the ask that brought the item back into the inbox; an undo deletes its row; a transfer moves it |
 | `item_seen` | when the viewer last looked at an item, for "since you were last here" |
 | `item_unread` | items the viewer marked unread by hand (U), with `marked_at`; opening the item removes the row |
 | `item_note` | private notes per item |
-| `item_write_failure` | writes to GitHub that failed (assign, unassign), with the error, for the item's timeline |
+| `item_write_failure` | writes to GitHub that failed (`kind` assign, unassign, react), with the error, for the item's timeline |
 | `item_cache` | the last fetch: viewer, items (JSON), `fetched_at`, `full_at`, `scope` |
 
 Schema changes are additive: a new column would be added in `Store.open` when missing.

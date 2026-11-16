@@ -18,8 +18,10 @@ review. An item stays in the inbox until you act on it.
 ![The inbox in dark mode with an issue open in the detail, on the demo mode's made-up data](docs/images/inbox-dark.png)
 
 This is a personal project: I build it for my own work and publish it so others can use it too.
-Issues with bugs or ideas are welcome. Pull requests are not expected, and updates come when
-there is something to ship, not on a schedule.
+Issues with bugs or ideas are welcome. Pull requests are not expected, except from the
+[Windows edition](https://github.com/andremieth/inbox-for-github): a fork that sends its shared
+changes here, and the place for bugs that only happen on Windows. Updates come when there is
+something to ship, not on a schedule.
 
 ## What it does
 
@@ -37,8 +39,8 @@ there is something to ship, not on a schedule.
   the event in the calendar moves or removes the plan. The item's title, day, link and reference
   then reach the calendar's server (iCloud, Google, Exchange).
 - **Reply from the app:** a comment box modeled on GitHub's, with Markdown toolbar and preview,
-  plus close (as completed or not planned), reopen, and assigning or removing yourself (⌃A).
-  Reviews, approvals and inline comments stay in GitHub's own UI.
+  plus close (as completed or not planned), reopen, assigning or removing yourself (⌃A), and
+  emoji reactions on the description and comments. Reviews, approvals and inline comments stay in GitHub's own UI.
 - **Keyboard first:** the actions have keys (? lists them), and ⌘K opens a palette for commands
   and items.
   "Open in Orca" opens an item's repository in [Orca](https://github.com/stablyai/orca), cloning
@@ -61,7 +63,7 @@ The app reads GitHub through the GraphQL API, which allows 5000 points per hour 
 
 | Kind | Trigger | Loads | Cost | Misses |
 |---|---|---|---|---|
-| Full reload | start, changed organizations, every 15 minutes, ⇧⌘R | every search up to the item limit, with boards | a few hundred points | nothing within the limit |
+| Full reload | start, changed organizations, every 15 minutes, ⇧⌘R | every search to its end, with boards | about 19 points per 50 items | nothing up to GitHub's 1000 hits per search |
 | Quick refresh (delta) | ⌘R and automatically, within 15 minutes of the last full reload | the same searches, only items changed since the last refresh, one page of 20 each | about 15–30 points | what leaves an item's `updatedAt` alone, such as board moves, and items that drop out of a search; withdrawn review requests it does see |
 | One item | ⌃R | the item by id, with boards | 1–2 points | the reasons only a search knows (a review request), which stay as they were |
 | One view | right click on a view | its items by id, with boards | 19 points per 50 | as ⌃R |

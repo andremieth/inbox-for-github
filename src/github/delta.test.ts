@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Item } from "../model";
-import { addRequested, canDelta, covers, decodeScope, encodeScope, findTransfers, FULL_EVERY_MS, mergeDelta, mergeReloaded, NEW_REVIEWS_MAX, transferCandidates, unseenReviews, widensClosed, withdrawReviews } from "./delta";
+import { addRequested, canDelta, covers, decodeScope, encodeScope, findTransfers, FULL_EVERY_MS, mergeDelta, livePending, mergeReloaded, NEW_REVIEWS_MAX, trackPending, transferCandidates, unseenReviews, widensClosed, withdrawReviews, withPending, type PendingChange } from "./delta";
+import { withSelfAssigned, withSelfUnassigned } from "../ui/assignments";
 
 const item = (id: string, overrides: Partial<Item> = {}) => ({ id, title: id, closed: null, ...overrides }) as Item;
 const now = Date.parse("2026-10-23T12:00:00Z");
@@ -20,6 +21,66 @@ describe("mergeDelta", () => {
     const fresh = item("fresh", { closed: { state: "merged", at: "2026-10-22T00:00:00Z" } });
     expect(mergeDelta([old, fresh], [], 7, now).map((i) => i.id)).toEqual(["fresh"]);
     expect(mergeDelta([fresh], [], 0, now)).toEqual([]);
+  });
+});
+
+describe("withPending", () => {
+  const at = "2026-10-23T11:59:00Z";
+  const before = item("a", { assignees: ["bob"], reasons: ["involved"], activities: [] });
+
+  it("puts a pending assignment back onto a delta fetched before GitHub had it", () => {
+    const merged = mergeDelta([withSelfAssigned(before, "me", at), item("b")], [before], 7, now);
+    const kept = withPending(merged, [{ id: "a", change: (i) => withSelfAssigned(i, "me", at) }]);
+    expect(kept.map((i) => [i.id, i.assignees])).toEqual([
+      ["a", ["bob", "me"]],
+      ["b", undefined],
+    ]);
+    expect(kept[1]).toBe(merged[1]);
+  });
+
+  it("applies the changes in order and leaves an item that already shows them alone", () => {
+    const assign = { id: "a", change: (i: Item) => withSelfAssigned(i, "me", at) };
+    const leave = { id: "a", change: (i: Item) => withSelfUnassigned(i, "me", "2026-10-23T11:59:30Z") };
+    expect(withPending([before], [assign, leave])[0].assignees).toEqual(["bob"]);
+    const landed = { ...before, assignees: ["bob", "me"] };
+    expect(withPending([landed], [assign])[0]).toBe(landed);
+    const items = [before];
+    expect(withPending(items, [])).toBe(items);
+  });
+});
+
+describe("trackPending", () => {
+  const at = "2026-10-23T11:59:00Z";
+  const before = item("a", { assignees: ["bob"], reasons: ["involved"], activities: [] });
+  const assigned = (i: Item) => withSelfAssigned(i, "me", at);
+  const track = async (write: Promise<unknown>) => {
+    const pending = { current: [] as PendingChange[] };
+    await trackPending(pending, { id: "a", change: assigned }, write, () => 200);
+    return pending;
+  };
+
+  it("keeps a confirmed change for a fetch that started before GitHub confirmed it", async () => {
+    const pending = await track(Promise.resolve());
+    expect(withPending([before], pending.current, 100)[0].assignees).toEqual(["bob", "me"]);
+  });
+
+  it("takes a fetch that started after the confirmation as it is, and drops the change once it landed", async () => {
+    const pending = await track(Promise.resolve());
+    expect(withPending([before], pending.current, 300)[0]).toBe(before);
+    expect(livePending(pending.current, 100)).toHaveLength(1);
+    expect(livePending(pending.current, 300)).toEqual([]);
+  });
+
+  it("drops a failed write's change, so a stale fetch keeps the rollback", async () => {
+    const pending = await track(Promise.reject(new Error("locked")));
+    expect(pending.current).toEqual([]);
+    expect(withPending([before], pending.current, 100)[0]).toBe(before);
+  });
+
+  it("puts back only the writes on their way when no start is given", () => {
+    const settled = { id: "a", change: assigned, settledAt: 200 };
+    expect(withPending([before], [settled])[0]).toBe(before);
+    expect(withPending([before], [{ id: "a", change: assigned }])[0].assignees).toEqual(["bob", "me"]);
   });
 });
 
@@ -99,6 +160,13 @@ describe("canDelta", () => {
     expect(canDelta({ scope: "s", fullAt: new Date(now - FULL_EVERY_MS) }, "s", now)).toBe(false);
     expect(canDelta({ scope: "other", fullAt: new Date(now) }, "s", now)).toBe(false);
     expect(canDelta(null, "s", now)).toBe(false);
+  });
+
+  it("asks for a full fetch once when cached items predate reactions", () => {
+    const fresh = { reactions: [] } as unknown as Item;
+    const old = {} as unknown as Item;
+    expect(canDelta({ scope: "s", fullAt: new Date(now), items: [fresh] }, "s", now)).toBe(true);
+    expect(canDelta({ scope: "s", fullAt: new Date(now), items: [fresh, old] }, "s", now)).toBe(false);
   });
 });
 

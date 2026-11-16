@@ -19,36 +19,52 @@ export class TimeoutError extends Error {
   }
 }
 
-/** A failure this late is GitHub's timeout, not the network: that one fails at once. */
+/** GitHub's timeout fails 10.5 to 11 s after sending; a missing network at once, a sleeping Mac much later. */
 const GAVE_UP_MS = 9_000;
+const GAVE_UP_UNTIL_MS = 20_000;
 
 let latestBudget: Budget | null = null;
 let spent = 0;
+/** Reset time (ms) → the lowest `remaining` seen in that window; GitHub can answer from two windows in turn. */
+const windows = new Map<number, number>();
+const HOUR_MS = 3_600_000;
 
 /**
- * GraphQL points this app has used since it started, as far as the headers show: the drop in
- * `remaining` between responses, and on a new hourly window what that window used so far.
+ * GraphQL points this app has used since it started, as far as the headers show: per hourly
+ * window, the drop in `remaining` between its responses, and on a new hour what that hour used
+ * so far. A second window GitHub answers from while the first still runs counts only its drops,
+ * since what it used before is not this app's.
  * Compare two readings to get the cost of what ran in between.
  */
 export function pointsSpent(): number {
   return spent;
 }
 
-/** The GraphQL budget as of the last response, read from its `x-ratelimit-*` headers; free. */
-export function lastBudget(): Budget | null {
-  return latestBudget;
+/**
+ * The GraphQL budget as the responses' `x-ratelimit-*` headers show it; free. While GitHub
+ * answers from two windows that both still run, the one with less left, so the usage ring does
+ * not jump between them and the pause at a low budget comes sooner rather than later.
+ */
+export function lastBudget(now = Date.now()): Budget | null {
+  const running = [...windows].filter(([at]) => at > now);
+  if (!latestBudget || running.length < 2) return latestBudget;
+  const [at, remaining] = running.reduce((tightest, next) => (next[1] < tightest[1] ? next : tightest));
+  return { remaining, limit: latestBudget.limit, resetAt: new Date(at) };
 }
 
 function noteHeaders(headers: Headers): void {
-  const remaining = Number(headers.get("x-ratelimit-remaining"));
+  const remaining = Number(headers.get("x-ratelimit-remaining") ?? NaN);
   const reset = Number(headers.get("x-ratelimit-reset"));
-  if (headers.get("x-ratelimit-resource") !== "graphql" || !reset) return;
+  if (headers.get("x-ratelimit-resource") !== "graphql" || !reset || !Number.isFinite(remaining)) return;
   const limit = Number(headers.get("x-ratelimit-limit")) || 5000;
   const resetAt = new Date(reset * 1000);
-  if (latestBudget) {
-    const sameWindow = latestBudget.resetAt.getTime() === resetAt.getTime();
-    spent += Math.max(0, sameWindow ? latestBudget.remaining - remaining : limit - remaining);
-  }
+  const lowest = windows.get(resetAt.getTime());
+  // GitHub's own times, not the local clock: a window opened after the others ended resets an hour after them.
+  const newHour = [...windows.keys()].every((at) => resetAt.getTime() >= at + HOUR_MS);
+  if (lowest !== undefined) spent += Math.max(0, lowest - remaining);
+  else if (latestBudget && newHour) spent += limit - remaining;
+  windows.set(resetAt.getTime(), Math.min(lowest ?? remaining, remaining));
+  for (const at of windows.keys()) if (resetAt.getTime() >= at + HOUR_MS) windows.delete(at);
   latestBudget = { remaining, limit, resetAt };
 }
 
@@ -93,7 +109,7 @@ export async function graphql<T>(
 ): Promise<T> {
   const started = Date.now();
   const report = (outcome: Record<string, unknown>) => logRequest(query, variables, started, outcome);
-  const gaveUp = () => Date.now() - started >= GAVE_UP_MS;
+  const gaveUp = (ms = Date.now() - started) => ms >= GAVE_UP_MS && ms < GAVE_UP_UNTIL_MS;
   const response = await fetch(ENDPOINT, {
     signal,
     method: "POST",
