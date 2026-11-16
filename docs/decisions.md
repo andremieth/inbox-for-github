@@ -30,10 +30,11 @@ question, and D follows that intent (2026-11-11); the table of views is in
 - **The inbox switch is "All · Reviews · Other".** Reviews are pending review requests; "Other" is
   everything else that keeps an item there. Reviews come first like pull requests in the kind
   switch, so the second position means the same in every view.
-- **The sidebar's view groups have no headings.** "Requests & updates" and "My issues & pull
+- **The sidebar lists the views without headings.** "Requests & updates" and "My issues & pull
   requests" suggested a split by whose work it is, which the views do not make: an assigned issue
-  with a mention sits in the inbox and in Assigned to me. A short line between the groups says
-  enough: what comes in, is dated and is finished (lists) against what the viewer owns (tables).
+  with a mention sits in the inbox and in Assigned to me. The order says enough: first what comes
+  in and what is dated (the lists Inbox, Planned, Follow-up), then what the viewer owns (the
+  tables). Earlier: a short line divided the two groups; they are one list since 2026-10-28.
 - **Planned renders as a list or a table** like Assigned to me, picked from an icon menu in its
   header and remembered per device, since the view is a conversation list for some and a work
   table for others.
@@ -67,9 +68,9 @@ question, and D follows that intent (2026-11-11); the table of views is in
 - **Keys that change GitHub carry Control.** ⌃A assigns you and ⌃U removes you; ⌃R, which
   reloads the item, kept its Control too. No plain letter writes, so a key under the pointer never
   writes to GitHub by accident. G opens the item on GitHub (2026-11-13; it was ⌃O): opening
-  writes nothing, so it needs no Control. U and R both toggle read and unread. ⌘T and ⌘G switch the app
-  (⌘T the filter, ⌘G the grouping), not an item, which freed T for Today and P for the plan
-  menu.
+  writes nothing, so it needs no Control. U and R both toggle read and unread. ⌘T and ⌘G switch
+  the app (⌘T the filter, ⌘G the grouping), not an item, which freed T for Today and P for the
+  plan menu.
 - **Tab reaches the main window's buttons only with a setting, off by default** (2026-11-10,
   `tabToButtons`). Native Mac apps walk text fields only unless "Keyboard navigation" is on in the
   system; the web view walks buttons regardless, so the app carries the switch itself. With it on,
@@ -77,11 +78,12 @@ question, and D follows that intent (2026-11-11); the table of views is in
   bar; after a click they are shortcuts again. Keyboard focus shows as a fill that meets 3:1, not
   a ring, and only after keyboard use.
 - **Undo is a chain, not a single step.** Every change the viewer makes (status, follow-up date,
-  read and unread, Today, assigning and leaving, close and reopen, reactions, hiding an item) is a step with
-  what takes it back and what does it again, kept for the window's lifetime (the last fifty). ⌘Z
-  walks back, ⌘Y forward, and ⌘K lists the chain to jump several steps. A step restores what it
-  replaced exactly, not "the previous status". Writes to GitHub are undone with the opposite
-  write; a sent comment is not undoable. The history is not stored.
+  plan and Today, read and unread, assigning and leaving, close and reopen, reactions, hiding an
+  item) is a step with what takes it back and what does it again, kept for the window's lifetime
+  (the last fifty, `HISTORY_LIMIT`). ⌘Z walks back, ⌘Y forward, and ⌘K lists the chain to jump
+  several steps. A step restores what it replaced exactly, not "the previous status". Writes to
+  GitHub are undone with the opposite write; a sent comment is not undoable. The history is not
+  stored.
 - **Untracking is local and deliberate.** It hides an item everywhere, also from new activity; it
   sits in the right-click menu under "More" and in the palette, not on a key, and can be undone.
 
@@ -99,23 +101,28 @@ question, and D follows that intent (2026-11-11); the table of views is in
   state, and O opens the work again and keeps the follow-up. P and T never apply to a finished
   part. F that changes nothing (same date, or none again, with no ask waiting) is a no-op, so
   neither the status time nor the snapshot moves.
+- **X gives back what a when handled** (2026-11-13). F, P and T count as handling, so a review
+  request parked with F and then taken off with X used to land in the Done bar, unreviewed. X now
+  removes handled-until, so what is still pending asks again, as when the date comes; with
+  nothing pending nothing comes back, and a finished part stays done. To be rid of an item, D.
 - **One follow-up, which can ring** (2026-10-24, 2026-11-12). "Snooze" and "reminder" were two
   ways to say "bring this back at a date", and an item could carry both. The follow-up has a date
-  or none. A passed date brings the item back as an ask, quietly. "Remind me" on a follow-up with
-  a date (R in the F menu) makes it ring once, also on own items and assignments (2026-11-13: no
-  Reminders bar any more; a returning follow-up is unread like any return, which says enough): a review handed to someone who has time only
-  tomorrow is worth a nudge then, and in a full inbox a quiet return sinks. It is opt-in per
-  follow-up, so the rest stays quiet, and in-app only: no Reminders app or calendar to depend on,
-  and the app must run (below). In code it is `notify` (column `item_status.notify`), as
-  "reminder" already names the calendar alarm and the follow-up itself. Where an item waits follows from where it lives:
-  assignments and own items stay in their table (bar Follow-up, with Blocked on its own), others
-  leave their list.
+  or none. A passed date brings the item back as an ask, quietly, and unread like any return,
+  which says enough without a bar of its own (2026-11-13: the Reminders bar went). "Remind me" on
+  a follow-up with a date (R in the F menu) makes it ring once, also on own items and
+  assignments: a review handed to someone who has time only tomorrow is worth a nudge then, and
+  in a full inbox a quiet return sinks. It is opt-in per follow-up, so the rest stays quiet, and
+  in-app only: no Reminders app or calendar to depend on, and the app must run (below). In code
+  it is `notify` (column `item_status.notify`), as "reminder" already names the calendar alarm
+  and the follow-up itself.
 - **Follow-up has its own view** (2026-11-02). A follow-up is also how to check back on work
   handed to others (an assignment whose part is done, an issue someone else took on, an own pull
   request); nothing else showed all that the viewer waits on. The view lists every follow-up that
-  waits, by the day it comes back, soonest first, as a list or a table like Planned. The tables
-  keep their Follow-up bar, so they still show all the viewer owns; whether those bars stay is
-  open. Assigned to me shows board-blocked items in a bar Blocked of their own.
+  waits, by the day it comes back, soonest first, as a list or a table like Planned. Where an
+  item waits follows from where it lives: assignments and own items stay in their table, in its
+  bar Follow-up, others leave their list. The tables keep that bar, so they still show all the
+  viewer owns; whether those bars stay is open. Assigned to me shows board-blocked items in a bar
+  Blocked of their own.
 - **Planned shows Today and plans.** Today is its first bar, so what is due now stays in sight of
   what comes next. P keeps an item in its list and brings it to Today on its day; F hides it
   until its date. Planning is not snoozing: a planned item stays on the plate.
@@ -123,8 +130,9 @@ question, and D follows that intent (2026-11-11); the table of views is in
   let a plan that did not fit miss its day without a word. Each morning everything planned for
   the day moves in; what was not finished stays, marked since when, so leftovers are dealt with
   (D, P or T) instead of vanishing quietly.
-- **T and P take any open item in any view,** not only assignments (never a finished part): a mention can be answered on
-  Thursday too. Elsewhere than Assigned to me the row shows its day or the Today mark.
+- **T and P take any open item in any view,** not only assignments (never a finished part): a
+  mention can be answered on Thursday too. Elsewhere than Assigned to me the row shows its day or
+  the Today mark.
 - **A plan holds until its day.** Answering an ask that brought a planned item into the inbox
   only answers the ask: the item stays in Planned, so a reply cannot cost the plan. Closing on
   GitHub drops it at once. Plain activity stays in Planned as unread. D ends a plan, except "my
@@ -163,7 +171,8 @@ returns only through an ask newer than its handled-until. The reasons:
   An item is in the inbox while one is newer than handled-until; nothing is written to bring it
   back. Earlier: a reset wrote an Open or ended the follow-up (`auto:snooze-ended`), so row,
   explanation and history could name different asks. Now they follow the newest ask, and every
-  return gets a history line that is derived, not stored (`history.back.*`).
+  return gets a history line (`history.back.*`), kept in `item_log` since 2026-11-13 so that it
+  stays once the item is handled (see the timeline's own decisions).
 - **The ask kinds:** `opened` (O, a manual ask), `reopened` (a reopen on GitHub, with who),
   `post` ("Any post", with who) and `due` (a follow-up whose date passed). A due follow-up, a
   reopen, O and "Any post" return quietly, without a notification.
@@ -198,9 +207,9 @@ returns only through an ask newer than its handled-until. The reasons:
   you wrote in on someone else's pull request, and your own item closed by someone else without
   it being done (a pull request not merged, an issue not planned or a duplicate) bring the item
   into the inbox, without a mention. Waiting for feedback is what an own item does; missing it was
-  the gap. Your reply, review or push answers it; D files it without finishing anything. Each has
-  its switch in Settings → Rules; feedback on own items can be narrowed to requested changes. Bots
-  do not count.
+  the gap. Your reply, review or push answers it; D files it without finishing anything. Bots do
+  not count. Each had a switch of its own until 2026-11-13; they are always on now (see "Fewer
+  settings").
 - **Merge conflicts do not ask.** A conflict on an own pull request surfaces anyway the next time
   you work on it or try to merge it, although `pull.conflicts` is already fetched.
 - **New commits by others bring a reviewed pull request back, as their own ask** (2026-10-27). A
@@ -210,19 +219,19 @@ returns only through an ask newer than its handled-until. The reasons:
   pusher, so commits without a linked GitHub user count as nobody's; a force push by someone else
   counts the same, since after a rebase the commits keep their old dates.
 - **"Bring back on" offers mention or any post.** The third choice, "any post if assigned",
-  stopped doing anything once assignments finished as "my part done"; a stored value acts as
-  "mention". With "Any post" (2026-11-12), any post by someone else on an item outside the
-  tables, newer than handled-until, is an ask. The setting key `reopenOn` stays; only the label
-  changed, since there is no stored done anymore.
+  stopped doing anything once assignments finished as "my part done"; a stored value is
+  rewritten to "mention". With "Any post" (2026-11-12), any post by someone else on an item
+  outside the tables, newer than handled-until, is an ask. The setting key `reopenOn` stays; only
+  the label changed, since there is no stored done anymore.
 - **"Self-mention" for mentioning yourself,** so that "reminder" is not a second word for a
   follow-up.
 - **A repo shows "All updates" or "Only addressed to me".** In repos where others review, a
   request that reached the viewer only through a team (no `reviewRequests` entry with their
   login) loses the "review" reason before `classify`, so it neither fills the inbox nor notifies.
   The `directOnly` setting lists the repos per organization; every repo shows all updates by
-  default, and hiding a repo altogether stays the job of the repo filter. Set in Settings → Rules
-  or by right click on a repo in the sidebar. A withdrawn direct request still counts as direct,
-  since `reviewRequests` holds every request event.
+  default, and hiding a repo altogether stays the job of the repo filter. Set in Settings → Inbox
+  rules or by right click on a repo in the sidebar. A withdrawn direct request still counts as
+  direct, since `reviewRequests` holds every request event.
 
 ## The Done bar
 
@@ -257,11 +266,12 @@ returns only through an ask newer than its handled-until. The reasons:
   log but asks nothing of you: someone dropping a co-assignee, or you, is no to-do. An assignment
   of someone else stays news.
 - **The dock badge counts unread, like a mailbox, and only where there is something to do.**
-  Unread inbox items and unread assignments (not the parked bars Follow-up and Finished), marks by
-  hand included. Opening an item (after `SEEN_AFTER_MS`) lowers it; anything new by others since
-  the last visit puts it back (`unreadInInbox`). Inbox and Assigned to me print unread rows bold,
-  and their sidebar entry bold with its count; the count itself stays the total. The tables show
-  no count in their header: the sidebar's number is the one count of what asks for you.
+  Unread inbox items and unread assignments (not the parked bars Blocked, Follow-up and
+  Finished), marks by hand included. Opening an item (after `SEEN_AFTER_MS`) lowers it; anything
+  new by others since the last visit puts it back (`unreadInInbox`). Inbox and Assigned to me
+  print unread rows bold, and their sidebar entry bold with its count; the count itself stays the
+  total. The tables show no count in their header: the sidebar's number is the one count of what
+  asks for you.
 - **U marks an item unread, or read again.** The mark lives in its own table, so `item_seen`
   keeps the time of the last visit; opening the item takes the mark back.
 - **The picked repositories narrow the counts next to the views; no other filter does,** and the
@@ -283,8 +293,8 @@ returns only through an ask newer than its handled-until. The reasons:
   for two rows of the same title: the tooltip and the detail name it.
 - **Assigned to me is a status table** grouped by the board status, normalized per board, with
   linked pull requests as the fallback. Grouped by issue type (the default), bugs come first,
-  then other types, tasks, features, stories, with pull requests from others on top; GitHub issue
-  types only, no label fallback.
+  then other types, tasks, features, stories, epics, issues without a type last, with pull
+  requests from others on top; GitHub issue types only, no label fallback.
 - **Assigned to me and Created by me can group by repository** (2026-11-10), one bar per
   repository by name, for whoever works through one codebase at a time. Follow-up, Blocked and
   Finished stay at the bottom as in every grouping. Within a repository bar rows go by the time
@@ -294,14 +304,24 @@ returns only through an ask newer than its handled-until. The reasons:
   date as quiet absolute text after the title, never two relative times side by side; Created by
   me by the opening. Chips no longer filter; the sprint filter and the properties sit in the
   header.
-- **Inline comments stay on GitHub.** The timeline shows one line per review (verdict, number of
-  inline comments, how many are resolved), linked to the review on GitHub, instead of each
-  comment as a post; only one mentioning the viewer stays a post. Resolving has no time on GitHub,
-  so it changes the line's state in brackets and never adds a line of its own.
-- **X gives back what a when handled** (2026-11-13). F, P and T count as handling, so a review
-  request parked with F and then taken off with X used to land in the Done bar, unreviewed. X now
-  removes handled-until, so what is still pending asks again, as when the date comes; with
-  nothing pending nothing comes back, and a finished part stays done. To be rid of an item, D.
+
+## Detail and timeline
+
+- **The detail's buttons go from the item's state outward** (2026-11-13, 2026-11-16). They stand
+  on the right, "Issue details" or "PR details" on the left; first the status switch and the
+  reason the item sits there (💡), then, all at one even gap:
+  - opening it elsewhere: GitHub, Orca;
+  - tools on it: link, refresh;
+  - Assign me, the one button that writes to GitHub;
+  - the pop-up's ×.
+
+  Assign me shows only when it can act, so it sits last, where its coming and going moves
+  nothing else. In a column narrower than 700px the tools after the 💡 fold into a "…" menu, as
+  the list's controls do. Below 560px the status switch keeps only its icons. The repository and
+  number stand above the title for good: in the header they were cut or, moved there only when
+  they fit, jumped between the two places as the column changed width; moving the buttons left
+  instead read worse. That line makes the repository chip under the title redundant, so the
+  detail has none and its attribute settings no switch for it; the tables keep it.
 - **The timeline tells the viewer's own decisions too** (2026-11-13). Plans, follow-ups with
   their dates, filing and each return to the inbox get a line that stays, so an item's place can
   always be read from its log: before, a plan left no trace, X on a follow-up read "Reopened
@@ -309,6 +329,17 @@ returns only through an ask newer than its handled-until. The reasons:
   for one: a "when" replaced by another, or a cleared status D filed, is not shown again, and a
   follow-up set and taken off in one go leaves nothing. Stored additively: new nullable columns on
   `status_log`, plans and returns in `item_log`, so older rows read as before.
+- **Inline comments stay on GitHub.** The timeline shows one line per review (verdict, number of
+  inline comments, how many are resolved), linked to the review on GitHub, instead of each
+  comment as a post; only one mentioning the viewer stays a post. Resolving has no time on GitHub,
+  so it changes the line's state in brackets and never adds a line of its own.
+- **Reactions** (2026-11-16): reacting is the lightest answer to a comment, so the detail shows
+  GitHub's emoji under each post and lets the viewer add or take back their own; still no review
+  actions and no edits of others' text. They change nothing about where an item shows, its dot or
+  what notifies, and reacting answers nothing (rule 11 in
+  [`behaviour.md`](reference/behaviour.md)): an emoji is too light to count as handled. Counts
+  only, no names of who reacted: the names would cost a search page more than three times its
+  points ([`github-api.md`](reference/github-api.md#reactions-2026-11-16)).
 
 ## Fetching and the API
 
@@ -318,21 +349,20 @@ returns only through an ask newer than its handled-until. The reasons:
   cache-version bump.
 - **A full fetch every 15 minutes** (2026-11-02), not every hour. Deltas see only what moves
   `updatedAt`, and assignments, board moves and cross-references do not. A full fetch of about
-  200 items costs about 120 points, so four an hour plus a delta every minute stay near 1,400 of
-  GitHub's 5,000. The budget is shared with every other tool on the same token, which is why it
-  is not tighter.
-- **No item limit** (2026-11-13). Every search pages to its end, up to GitHub's 1000 hits.
-  "Items loaded at most" (200) cut a search with more hits, and GitHub orders hits by best
-  match, which shifts between fetches. So the cut items changed: an item dropped out and
-  notified as new when it came back. A page of 50 costs about 19 points, so 250 hits instead
-  of 200 cost one page more. Near GitHub's 1000 a full fetch costs well over a thousand points,
-  and four of them an hour would use up the budget; the pause before it runs out (`LOW_BUDGET`)
-  covers that rare case. The stored key stays in the database for now, so older versions can
-  still read it.
-  Past the 1000, searches sort by last update, so only the oldest items are missing and always
-  the same ones; the sidebar says "Not all loaded" instead of a notice block, since nothing
-  needs doing at once. And an ask older than the fetch before no longer notifies, so an item
-  that was missing for a while comes back quietly.
+  200 items costs about 120 points, so four an hour plus a delta every minute (the shortest
+  refresh interval; the default is 5 minutes) stay near 1,400 of GitHub's 5,000. The budget is
+  shared with every other tool on the same token, which is why it is not tighter.
+- **No item limit** (2026-11-13, 2026-11-16). Every search pages to its end, up to GitHub's 1000
+  hits (`SEARCH_STOP`). "Items loaded at most" (200) cut a search with more hits, and GitHub
+  orders hits by best match, which shifts between fetches. So the cut items changed: an item
+  dropped out and notified as new when it came back. A page of 50 costs about 19 points, so 250
+  hits instead of 200 cost one page more. Near GitHub's 1000 a full fetch costs well over a
+  thousand points, and four of them an hour would use up the budget; the pause before it runs out
+  (`LOW_BUDGET`) covers that rare case. Searches sort by last update (2026-11-16), so past the
+  1000 only the oldest items are missing, and always the same ones; the sidebar says "Not all
+  loaded" instead of a notice block, since nothing needs doing at once. An ask older than the
+  fetch before does not notify, so an item that was missing for a while comes back quietly. The
+  stored `maxItems` is deleted with the other dropped settings (see "Fewer settings").
 - **A transferred issue is recognized by repository, creation time and title.** GitHub gives it a
   new node id and keeps no link to the old one, but keeps `createdAt` and the title, and names
   the old repository in a `TransferredEvent`. The match also needs exactly one candidate, and the
@@ -370,15 +400,8 @@ returns only through an ask newer than its handled-until. The reasons:
 
 - **Read-mostly toward GitHub.** The app writes only plain comments, close/reopen, adding the
   viewer to or removing them from the assignees ("Assign me" ⌃A, ⌃U; others stay assigned), and
-  the viewer's own reactions. Review actions (approve, request changes, inline reviews) stay in
-  GitHub's UI; deleting reminder comments or editing descriptions was declined.
-- **Reactions** (2026-11-16): reacting is the lightest answer to a comment, so the detail shows
-  GitHub's emoji under each post and lets the viewer add or take back their own; still no review
-  actions and no edits of others' text. They change nothing about where an item shows, its dot or
-  what notifies, and reacting answers nothing (rule 11 in
-  [`behaviour.md`](reference/behaviour.md)): an emoji is too light to count as handled. Counts
-  only, no names of who reacted: the names would cost a search page three times its points
-  ([`github-api.md`](reference/github-api.md#reactions-2026-11-16)).
+  the viewer's own reactions (2026-11-16). Review actions (approve, request changes, inline
+  reviews) stay in GitHub's UI; deleting reminder comments or editing descriptions was declined.
 
 ## Data, settings and privacy
 
@@ -420,21 +443,6 @@ returns only through an ask newer than its handled-until. The reasons:
 
 ## Look
 
-- **The detail's buttons go from the item's state outward** (2026-11-13). They stand on the
-  right, "Issue details" or "PR details" on the left; first the status switch and the
-  reason the item sits there (💡), then each group a little apart:
-  - opening it elsewhere: GitHub, Orca;
-  - tools on it: link, refresh;
-  - Assign me, the one button that writes to GitHub;
-  - the pop-up's ×.
-
-  Assign me shows only when it can act, so it sits last, where its coming and going moves
-  nothing else. In a column narrower than 700px the tools after the 💡 fold into a "…" menu, as
-  the list's controls do. Below 560px the status switch keeps only its icons. The repository and
-  number stand above the title for good: in the header they were cut or, moved there only when
-  they fit, jumped between the two places as the column changed width; moving the buttons left
-  instead read worse. That line makes the repository chip under the title redundant, so the
-  detail has none and its attribute settings no switch for it; the tables keep it.
 - **Calm placeholders.** GitHub's identicons are replaced by gradient orbs picked per login.
   **No two people share an orb:** an orb is a look (palette, accent and accent angle, one number
   below `LOOKS`). A login's first look comes from its name and is kept whenever it is free;
