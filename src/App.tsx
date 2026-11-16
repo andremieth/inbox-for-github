@@ -1,14 +1,15 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ghToken } from "./github/token";
-import { assignSelf, setOpen, unassignSelf, type CloseReason } from "./github/comment";
+import { assignSelf, setOpen, setReaction, unassignSelf, type CloseReason } from "./github/comment";
 import { snapshotOf } from "./handoff";
 import { queueWrite } from "./github/queue";
 import { sameLogin } from "./timeline";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Classified } from "./classify";
 import { handledStep } from "./handledUntil";
-import type { LogEvent, Status, StatusChange, StatusExtra, WriteFailure } from "./model";
+import type { LogEvent, ReactionContent, Status, StatusChange, StatusExtra, WriteFailure } from "./model";
 import { setLang, t, type MessageKey } from "./ui/i18n";
+import { REACTIONS, withReaction, withReactions } from "./ui/reactions";
 import { itemLink, statusHint, KINDS, nextOf, sortTime, statusesFor, viewOf, VIEWS, type KindFilter, type LinkFormat, type View } from "./ui/labels";
 import { covers, setCovered } from "./rules/directOnly";
 import { ContextMenu, type MenuEntry } from "./ui/parts/ContextMenu";
@@ -934,19 +935,16 @@ export default function App() {
         () => classifiedById(id) && assignMe(classifiedById(id)!, true),
       );
     const at = new Date().toISOString();
-    const write = queueWrite(() =>
-      ghToken()
-        .then((token) => assignSelf(token, id))
-        .then(
-          (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
-          (e) => {
-            inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
-            void inbox.logWriteFailure(id, "assign", String(e));
-            actions.notify(t("assign.failed", { number, error: String(e) }));
-          },
-        ),
-    );
+    const write = queueWrite(() => ghToken().then((token) => assignSelf(token, id)));
     inbox.updateItem(id, (item) => withSelfAssigned(item, me, at), write);
+    write.then(
+      (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
+      (e) => {
+        inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
+        void inbox.logWriteFailure(id, "assign", String(e));
+        actions.notify(t("assign.failed", { number, error: String(e) }));
+      },
+    );
   };
   /** The item as classified right now; an undo that runs later must not see the list of the render that made it. */
   const classifiedById = (id: string) => inbox.classifiedNow().find((e) => e.item.id === id);
@@ -979,20 +977,42 @@ export default function App() {
           if (now) leave(now, true);
         },
       );
-    const write = queueWrite(() =>
-      ghToken()
-        .then((token) => unassignSelf(token, id))
-        .then(
-          (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
-          (e) => {
-            inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
-            if (cleared) void inbox.restoreStatus(id, previous);
-            void inbox.logWriteFailure(id, "unassign", String(e));
-            actions.notify(t("unassign.failed", { number, error: String(e) }));
-          },
-        ),
-    );
+    const write = queueWrite(() => ghToken().then((token) => unassignSelf(token, id)));
     inbox.updateItem(id, (item) => withSelfUnassigned(item, me, at), write);
+    write.then(
+      (fresh) => inbox.updateItem(id, (item) => withAssignees(item, fresh, me)),
+      (e) => {
+        inbox.updateItem(id, (item) => withoutLocalEvent(item, { assignees, reasons }, at));
+        if (cleared) void inbox.restoreStatus(id, previous);
+        void inbox.logWriteFailure(id, "unassign", String(e));
+        actions.notify(t("unassign.failed", { number, error: String(e) }));
+      },
+    );
+  };
+  /**
+   * Adds or takes back the viewer's reaction on a post of item `id`: at once here, then on GitHub,
+   * queued; GitHub's counts replace the local guess. A failure takes the guess back, logs it in the
+   * item's timeline and says so. Undo sends the opposite write through the same queue.
+   */
+  const react = (id: string, number: number, subject: string, content: ReactionContent, on: boolean, quiet = false) => {
+    const text = t(on ? "reaction.added" : "reaction.removed", { number, emoji: REACTIONS[content] });
+    if (quiet) actions.notify(text);
+    else
+      actions.announce(
+        text,
+        () => react(id, number, subject, content, !on, true),
+        () => react(id, number, subject, content, on, true),
+      );
+    const write = queueWrite(() => ghToken().then((token) => setReaction(token, subject, content, on)));
+    inbox.updateItem(id, (item) => withReaction(item, subject, content, on), write);
+    write.then(
+      (fresh) => inbox.updateItem(id, (item) => withReactions(item, subject, fresh)),
+      (e) => {
+        inbox.updateItem(id, (item) => withReaction(item, subject, content, !on));
+        void inbox.logWriteFailure(id, "react", String(e));
+        actions.notify(t("reaction.failed", { number, error: String(e) }));
+      },
+    );
   };
   /** After a comment, close or reopen went to GitHub: load the item again; a close or reopen can be undone with the opposite write, an undone close with the item's plan. */
   const replied = (id: string, change?: StateWrite) => {
@@ -1421,6 +1441,7 @@ export default function App() {
             onSnooze={(at: DOMRect) => current && setSnoozeMenu({ entry: current, anchor: at })}
             onRemoveFollowUp={() => current && removeFollowUp(current)}
             reloading={reloading === current?.item.id}
+            onReact={(subject, content, on) => current && react(current.item.id, current.item.number, subject, content, on)}
           />
         </>
       )}
@@ -1457,6 +1478,7 @@ export default function App() {
             onSnooze={(at: DOMRect) => current && setSnoozeMenu({ entry: current, anchor: at })}
             onRemoveFollowUp={() => current && removeFollowUp(current)}
             reloading={reloading === current?.item.id}
+            onReact={(subject, content, on) => current && react(current.item.id, current.item.number, subject, content, on)}
                 onClose={closePopup}
               />
           </div>

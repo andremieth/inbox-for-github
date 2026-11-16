@@ -14,8 +14,8 @@ numbers below go stale when fields are added.
 
 | Request | Where | Cost |
 |---|---|---|
-| Search page of 50 items with all fields | `QUERY` in `src/github/fetch.ts` | ~19 points (18 before commits got their own window; unchanged by `issueType`, review ids and links, thread state, the state events, an issue window of 20 instead of 10, the commit author and `TransferredEvent`, dry run 2026-10-29; and by `issueCount` and `sort:updated-desc`, dry run 2026-11-13) |
-| Search page of 20 items (delta) | same, `pageSize: 20` | ~7 points (re-measured 2026-10-25; unchanged by `TransferredEvent`, dry run 2026-10-29, and by `issueCount` and the sort, 2026-11-13) |
+| Search page of 50 items with all fields | `QUERY` in `src/github/fetch.ts` | ~19 points (18 before commits got their own window; unchanged by `issueType`, review ids and links, thread state, the state events, an issue window of 20 instead of 10, the commit author and `TransferredEvent`, dry run 2026-10-29; and by `issueCount` and `sort:updated-desc`, dry run 2026-11-13; and by the reaction counts and post ids, dry run 2026-11-16) |
+| Search page of 20 items (delta) | same, `pageSize: 20` | ~7 points (re-measured 2026-10-25; unchanged by `TransferredEvent`, dry run 2026-10-29, and by `issueCount` and the sort, 2026-11-13, and by the reaction counts, 2026-11-16) |
 | Open review requests, ids only | `REVIEW_IDS_QUERY` (`fetchReviewIds`, every delta), page of 100 | 1 point (dry run and `x-ratelimit-used`, 2026-10-29) |
 | One item by node id | `NODE_QUERY` (`reloadItem`, ⌃R) | 1 point |
 | Many items by node id | `NODES_QUERY` (`fetchItemsById`, right click on a view), `REFRESH_CHUNK = 50` | 19 points for 50, 37 for 100, 9 for 25, 4 for 10 (measured 2026-10-26 with `rateLimit(dryRun: true)`); a single `node` costs 1, so from about three items the bulk request is cheaper |
@@ -75,6 +75,21 @@ Each was checked against the live API during development.
   `last: 20` on issues). Commits have their own (`commitItems`, `last: 20`), since `last` counts
   across all types and a long run of commits would otherwise push review requests out; it costs
   one point per search page of 50 and none on a delta page (dry run 2026-10-25).
+
+## Reactions (2026-11-16)
+
+- `reactionGroups` on an issue, a pull request, a comment, a review and an inline review comment
+  lists all eight emoji in a fixed order (`THUMBS_UP`, `THUMBS_DOWN`, `LAUGH`, `HOORAY`,
+  `CONFUSED`, `HEART`, `ROCKET`, `EYES`), unused ones with `reactors { totalCount: 0 }`
+  (read on a public issue). `reactionsOf` keeps only the used ones.
+- `viewerHasReacted` and `reactors { totalCount }` on every post left a search page at 19 points
+  for 50 and 7 for 20 (dry run). Names of the reactors through `reactors(first: 3) { nodes { … on
+  User { login } } }` raised it to 69 and 27, so the app loads counts only and its tooltip says
+  "You and 2 others", not who.
+- Whether a reaction moves the item's `updatedAt` is not verified; the simulator assumes it does
+  not, so a delta may show others' new reactions only with the next full fetch or a reload.
+- Caches from before reactions have no node ids on their posts, which reacting needs and an
+  empty value cannot stand in for, so `canDelta` asks for one full fetch right after the update.
 
 ## What moves `updatedAt` (2026-10-29)
 
@@ -152,7 +167,8 @@ over a dropped page of 50 and the page of 25 after it, where a page of 25 alone 
 ## Writes
 
 Only `src/github/comment.ts`: add a comment, close or reopen an issue or pull request (with a
-reason for issues), and add the viewer to the assignees (`assignSelf`: `addAssigneesToAssignable`,
+reason for issues), add or take back the viewer's reaction on a post (`setReaction`, below), and
+add the viewer to the assignees (`assignSelf`: `addAssigneesToAssignable`,
 1 point, returning the assignees; the viewer's node id once per session, 1 point; the query was
 validated against the live schema 2026-10-25 with an unknown node id, which GitHub rejects as
 `NOT_FOUND` without writing). No review actions and no edits of other people's text, by design
@@ -161,7 +177,11 @@ validated against the live schema 2026-10-25 with an unknown node id, which GitH
 `unassignSelf` removes the viewer the same way (`removeAssigneesFromAssignable`, 1 point;
 validated like `assignSelf` on 2026-10-25).
 
-Assigning and unassigning are shown at once and sent behind it through `queueWrite` (`src/github/queue.ts`), one
+`setReaction` adds or takes back the viewer's reaction on an item's description, a comment, a
+review or an inline review comment (`addReaction`, `removeReaction` on the post's node id,
+1 point each, returning the post's `reactionGroups`; validated like `assignSelf` on 2026-11-16).
+
+Assigning, unassigning and reactions are shown at once and sent behind it through `queueWrite` (`src/github/queue.ts`), one
 write after another; a failed one is undone locally with a toast. Measured 2026-10-25: about
 350 ms per GraphQL request and 70 ms for `gh auth token`, so waiting for the write plus a reload
 of the item and its boards took two to three seconds.

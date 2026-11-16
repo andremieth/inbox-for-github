@@ -938,3 +938,79 @@
 .segment-more {
   margin-left: -2px;
 }
+
+/* One pill per emoji, as on GitHub; the viewer's own is marked by the blue border (4.5:1 or more against both cards). */
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 0 16px 12px;
+}
+
+.description-body .reactions {
+  padding: 12px 0 0;
+}
+
+.reaction {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-s);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.reaction:not(:disabled):hover {
+  background: var(--hover);
+}
+
+.reaction.mine {
+  border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) var(--tint), transparent);
+  color: var(--text);
+}
+
+.reaction-add {
+  padding: 0 6px;
+}
+
+.reaction-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+
+.reaction-pick {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: transparent;
+  font-size: var(--fs-l);
+  line-height: 1;
+}
+
+.reaction-pick:hover {
+  background: var(--hover);
+}
+
+.reaction-pick.mine {
+  border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) var(--tint), transparent);
+}

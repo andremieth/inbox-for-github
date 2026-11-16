@@ -77,7 +77,7 @@ question, and D follows that intent (2026-11-11); the table of views is in
   bar; after a click they are shortcuts again. Keyboard focus shows as a fill that meets 3:1, not
   a ring, and only after keyboard use.
 - **Undo is a chain, not a single step.** Every change the viewer makes (status, follow-up date,
-  read and unread, Today, assigning and leaving, close and reopen, hiding an item) is a step with
+  read and unread, Today, assigning and leaving, close and reopen, reactions, hiding an item) is a step with
   what takes it back and what does it again, kept for the window's lifetime (the last fifty). ⌘Z
   walks back, ⌘Y forward, and ⌘K lists the chain to jump several steps. A step restores what it
   replaced exactly, not "the previous status". Writes to GitHub are undone with the opposite
@@ -368,10 +368,17 @@ returns only through an ask newer than its handled-until. The reasons:
 
 ## GitHub writes
 
-- **Read-mostly toward GitHub.** The app writes only plain comments, close/reopen, and adding the
-  viewer to or removing them from the assignees ("Assign me" ⌃A, ⌃U; others stay assigned).
-  Review actions (approve, request changes, inline reviews) stay in GitHub's UI; deleting
-  reminder comments or editing descriptions was declined.
+- **Read-mostly toward GitHub.** The app writes only plain comments, close/reopen, adding the
+  viewer to or removing them from the assignees ("Assign me" ⌃A, ⌃U; others stay assigned), and
+  the viewer's own reactions. Review actions (approve, request changes, inline reviews) stay in
+  GitHub's UI; deleting reminder comments or editing descriptions was declined.
+- **Reactions** (2026-11-16): reacting is the lightest answer to a comment, so the detail shows
+  GitHub's emoji under each post and lets the viewer add or take back their own; still no review
+  actions and no edits of others' text. They change nothing about where an item shows, its dot or
+  what notifies, and reacting answers nothing (rule 11 in
+  [`behaviour.md`](reference/behaviour.md)): an emoji is too light to count as handled. Counts
+  only, no names of who reacted: the names would cost a search page three times its points
+  ([`github-api.md`](reference/github-api.md#reactions-2026-11-16)).
 
 ## Data, settings and privacy
 

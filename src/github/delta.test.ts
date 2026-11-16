@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Item } from "../model";
-import { addRequested, canDelta, covers, decodeScope, encodeScope, findTransfers, FULL_EVERY_MS, mergeDelta, mergeReloaded, NEW_REVIEWS_MAX, transferCandidates, unseenReviews, widensClosed, withdrawReviews, withPending } from "./delta";
+import { addRequested, canDelta, covers, decodeScope, encodeScope, findTransfers, FULL_EVERY_MS, mergeDelta, livePending, mergeReloaded, NEW_REVIEWS_MAX, trackPending, transferCandidates, unseenReviews, widensClosed, withdrawReviews, withPending, type PendingChange } from "./delta";
 import { withSelfAssigned, withSelfUnassigned } from "../ui/assignments";
 
 const item = (id: string, overrides: Partial<Item> = {}) => ({ id, title: id, closed: null, ...overrides }) as Item;
@@ -46,6 +46,41 @@ describe("withPending", () => {
     expect(withPending([landed], [assign])[0]).toBe(landed);
     const items = [before];
     expect(withPending(items, [])).toBe(items);
+  });
+});
+
+describe("trackPending", () => {
+  const at = "2026-10-23T11:59:00Z";
+  const before = item("a", { assignees: ["bob"], reasons: ["involved"], activities: [] });
+  const assigned = (i: Item) => withSelfAssigned(i, "me", at);
+  const track = async (write: Promise<unknown>) => {
+    const pending = { current: [] as PendingChange[] };
+    await trackPending(pending, { id: "a", change: assigned }, write, () => 200);
+    return pending;
+  };
+
+  it("keeps a confirmed change for a fetch that started before GitHub confirmed it", async () => {
+    const pending = await track(Promise.resolve());
+    expect(withPending([before], pending.current, 100)[0].assignees).toEqual(["bob", "me"]);
+  });
+
+  it("takes a fetch that started after the confirmation as it is, and drops the change once it landed", async () => {
+    const pending = await track(Promise.resolve());
+    expect(withPending([before], pending.current, 300)[0]).toBe(before);
+    expect(livePending(pending.current, 100)).toHaveLength(1);
+    expect(livePending(pending.current, 300)).toEqual([]);
+  });
+
+  it("drops a failed write's change, so a stale fetch keeps the rollback", async () => {
+    const pending = await track(Promise.reject(new Error("locked")));
+    expect(pending.current).toEqual([]);
+    expect(withPending([before], pending.current, 100)[0]).toBe(before);
+  });
+
+  it("puts back only the writes on their way when no start is given", () => {
+    const settled = { id: "a", change: assigned, settledAt: 200 };
+    expect(withPending([before], [settled])[0]).toBe(before);
+    expect(withPending([before], [{ id: "a", change: assigned }])[0].assignees).toEqual(["bob", "me"]);
   });
 });
 
@@ -125,6 +160,13 @@ describe("canDelta", () => {
     expect(canDelta({ scope: "s", fullAt: new Date(now - FULL_EVERY_MS) }, "s", now)).toBe(false);
     expect(canDelta({ scope: "other", fullAt: new Date(now) }, "s", now)).toBe(false);
     expect(canDelta(null, "s", now)).toBe(false);
+  });
+
+  it("asks for a full fetch once when cached items predate reactions", () => {
+    const fresh = { reactions: [] } as unknown as Item;
+    const old = {} as unknown as Item;
+    expect(canDelta({ scope: "s", fullAt: new Date(now), items: [fresh] }, "s", now)).toBe(true);
+    expect(canDelta({ scope: "s", fullAt: new Date(now), items: [fresh, old] }, "s", now)).toBe(false);
   });
 });
 
