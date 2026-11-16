@@ -18,7 +18,10 @@ function respond(status: number, body: unknown, headers: Record<string, string>)
 }
 
 describe("graphql rate limits", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   it("records the budget from every response's headers", async () => {
     respond(200, { data: { ok: true } }, { "x-ratelimit-resource": "graphql", "x-ratelimit-remaining": "4908", "x-ratelimit-reset": "1792713930" });
@@ -34,6 +37,56 @@ describe("graphql rate limits", () => {
     respond(200, { data: {} }, headers(4882));
     await graphql("t", "{ ok }");
     expect(pointsSpent() - before).toBe(18);
+  });
+
+  it("counts only the growth of each window when GitHub answers from two in turn", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    const headers = (remaining: number, reset: number) => ({ "x-ratelimit-resource": "graphql", "x-ratelimit-remaining": String(remaining), "x-ratelimit-reset": String(reset) });
+    respond(200, { data: {} }, headers(4900, 1_800_000_600));
+    await graphql("t", "{ ok }");
+    const before = pointsSpent();
+    for (const [remaining, reset] of [[3000, 1_800_001_200], [4880, 1_800_000_600], [2990, 1_800_001_200]]) {
+      respond(200, { data: {} }, headers(remaining, reset));
+      await graphql("t", "{ ok }");
+    }
+    expect(pointsSpent() - before).toBe(30);
+  });
+
+  it("counts what a new hour used so far once the old one has reset", async () => {
+    const headers = (remaining: number, reset: number) => ({ "x-ratelimit-resource": "graphql", "x-ratelimit-remaining": String(remaining), "x-ratelimit-reset": String(reset) });
+    vi.spyOn(Date, "now").mockReturnValue(1_900_000_000_000);
+    respond(200, { data: {} }, headers(4900, 1_900_000_600));
+    await graphql("t", "{ ok }");
+    const before = pointsSpent();
+    vi.spyOn(Date, "now").mockReturnValue(1_900_000_700_000);
+    respond(200, { data: {} }, headers(4990, 1_900_004_200));
+    await graphql("t", "{ ok }");
+    expect(pointsSpent() - before).toBe(10);
+  });
+
+  it("takes no second window for a new hour when the local clock runs ahead", async () => {
+    const headers = (remaining: number, reset: number) => ({ "x-ratelimit-resource": "graphql", "x-ratelimit-remaining": String(remaining), "x-ratelimit-reset": String(reset) });
+    vi.spyOn(Date, "now").mockReturnValue(2_000_000_300_000);
+    respond(200, { data: {} }, headers(4900, 2_000_000_000));
+    await graphql("t", "{ ok }");
+    const before = pointsSpent();
+    for (const [remaining, reset] of [[3000, 2_000_000_060], [4880, 2_000_000_000], [2990, 2_000_000_060]]) {
+      respond(200, { data: {} }, headers(remaining, reset));
+      await graphql("t", "{ ok }");
+    }
+    expect(pointsSpent() - before).toBe(30);
+  });
+
+  it("skips a response without a remaining count", async () => {
+    const reset = { "x-ratelimit-resource": "graphql", "x-ratelimit-reset": "2100000000" };
+    respond(200, { data: {} }, { ...reset, "x-ratelimit-remaining": "4900" });
+    await graphql("t", "{ ok }");
+    respond(200, { data: {} }, reset);
+    await graphql("t", "{ ok }");
+    const before = pointsSpent();
+    respond(200, { data: {} }, { ...reset, "x-ratelimit-remaining": "4890" });
+    await graphql("t", "{ ok }");
+    expect(pointsSpent() - before).toBe(10);
   });
 
   it("waits until the hourly reset when the budget is used up", async () => {
