@@ -152,13 +152,12 @@ Measured 2026-11-11 from Node, where the status shows: a search page came back a
 10.9 s. In the app the same failures were logged 10.5 to 11 s after the request went out, and the
 sidebar read "Offline" on a working network.
 
-The timeout has a second face: a response with a 2xx status whose body no JSON parser takes. Seen
-2026-11-18 in WebView2, on the first full fetches that read every search to its end: two of
-three failed with `SyntaxError: Unexpected end of JSON input`, which only the parsing of such a
-body can throw there. One came 0.2 s after another search of the same fetch had run into the 502,
-the other while requests of 5.9, 8.1 and 9.8 s were out. The failing request left no log line at
-the time, so its own duration and the length of its body are not measured; `graphql` logs both
-since (`bytes`, `failed`).
+The timeout has a second face: status 200 with an empty body, which no JSON parser takes
+(`SyntaxError: Unexpected end of JSON input`). Measured 2026-11-19 in WebView2: a search page of
+50 came back after 11.1 s with status 200 and 0 bytes; asked again at 25 it answered, and the
+full fetch went through. The day before, when `graphql` still let that error through and did not
+log such a request, two of the first four full fetches that read every search to its end failed
+with it, one of them 0.2 s after another search of the same fetch had run into the 502.
 
 The search page is what runs into it. In an organization whose pull requests carry many reviews
 and threads, a page of 50 took 7 to 11 s, a page of 25 4 to 8 s and a page of 10 2 to 3 s, and
